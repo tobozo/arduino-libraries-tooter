@@ -1,6 +1,6 @@
 ## Arduino Libraries Tooter 🐘
 
-![Bot Head](./assets/head.jpg)
+<img width=250 src=./assets/head.jpg>
 
 Just like its [Twitter counterpart](https://twitter.com/ArduinoLibs), this app publishes the latest changes found in [Arduino Library Registry](https://www.arduino.cc/reference/en/libraries/) on [Mastodon](https://github.com/mastodon/mastodon).
 
