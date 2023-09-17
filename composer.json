@@ -1,0 +1,7 @@
+{
+    "require": {
+        "halaxa/json-machine": "^1.1",
+        "eleirbag89/mastodonbotphp": "^0.1.0",
+        "vlucas/phpdotenv": "^5.5"
+    }
+}
