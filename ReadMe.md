@@ -1,4 +1,4 @@
-## Arduino Libraries Tooter 🐘
+## Arduino Libraries Tooter 📯🐘
 
 This is the source code for the Bot running behind the fediverse account [@arduinoLibraries@botsin.space](https://botsin.space/@arduinoLibraries).
 
