@@ -49,6 +49,7 @@ class JSONCache
   }
 
 
+  // download remote file
   private function wget()
   {
     // TODO: stream this instead of using exec
@@ -59,11 +60,12 @@ class JSONCache
     return $ret;
   }
 
-
+  // guess updated library names from JSON diff
   private function getLibraryNamesFromDiff( $diff )
   {
-    // Regexp matches capture every "name":"blah" property values found in
-    // the diff result except those found in "dependencies" node array.
+    // Regexp matches capture every "name":"blah" property values found in the diff result.
+    // The pattern is perillous, it bets on indentation of the main property and diff format so that
+    // redundant "name":"blah" properties from [dependencies] childnode array can be safely ignored.
     if( preg_match_all('/>       "name": "(.*)"/', $diff, $matches ) ) {
       if( $matches[0] && $matches[1] && count($matches[0]) == count($matches[1]) ) {
         return array_unique($matches[1]);
@@ -72,7 +74,7 @@ class JSONCache
     return [];
   }
 
-
+  // load/download latest library index file
   public function load()
   {
 
@@ -103,6 +105,9 @@ class JSONCache
   }
 
 
+  // in: array of library names
+  // out: array of library properties + count
+  // what: iterate library index to collect library info from provided library names
   private function process( $updatedLibraries )
   {
     // stream-open the index file for parsing
@@ -135,7 +140,8 @@ class JSONCache
     ];
   }
 
-
+  // what: compare old and new index file for differences
+  // return: diff text or false if both files are simila
   public function changed()
   {
     // compare old and new file
@@ -147,7 +153,8 @@ class JSONCache
     return implode("\n", $diffResult );
   }
 
-
+  // what: get new libraries since last cron run
+  // return: updated libraries since last cron run
   public function getNewLibraries()
   {
     $diffResult = $this->changed();

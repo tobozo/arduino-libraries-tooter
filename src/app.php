@@ -98,7 +98,7 @@ class Manager
       implode(" ", array_unique($tags))
     );
     // ActivityPub status properties
-    $visibility = 'private'; // Public , Unlisted, Private, and Direct (default)
+    $visibility = 'public'; // 'private'; // Public , Unlisted, Private, and Direct (default)
     $language   = 'en';
     $status_data = [
       'status'     => $statusText,
@@ -107,16 +107,46 @@ class Manager
     ];
     // Publish to fediverse
     $resp = $this->mastodon->postStatus($status_data);
-    // Check response
-    $failed = isset($resp['ok']) && $resp['ok']===false;
-    // Log results
-    echo sprintf("Publishing %s (%s) / %s ... [%s]\n",
+
+    $api_call_failed = !$resp || empty($resp);
+
+    if( $api_call_failed ) {
+      // something wrong, result should be JSON object or array
+      echo sprintf("Mastodon API call failed (bad response) for %s (%s)\n",
+        $notifyLibrary['name'],
+        $notifyLibrary['version']
+      );
+      return false;
+    }
+
+    if( isset( $resp['curl_error'] ) ) {
+      // got a curl error
+      echo sprintf("Mastodon API call failed (curl error) for %s (%s).\nError code:%s\nError: %s\n",
+        $notifyLibrary['name'],
+        $notifyLibrary['version'],
+        $resp ['curl_error_code'],
+        $resp ['curl_error']
+      );
+      return false;
+    }
+
+    if( isset( $resp['error'] ) ) {
+      // got an {"error":"blah"} message in Mastodon's JSON Response
+      echo sprintf("Mastodon API call failed (application error) for %s (%s)\nJSON Error: %s",
+        $notifyLibrary['name'],
+        $notifyLibrary['version'],
+        $resp ['error']
+      );
+    }
+
+    // Success
+    echo sprintf("Published %s (%s) / %s as %s\n",
       $notifyLibrary['name'],
       $notifyLibrary['version'],
       $author,
-      $failed ? 'FAILED' : 'SUCCESS'
+      isset( $resp['id'] ) ? $resp['id'] : 'no-ID'
     );
-    return !$failed;
+    return true;
   }
 
 }

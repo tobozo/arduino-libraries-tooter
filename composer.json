@@ -1,4 +1,15 @@
 {
+    "name": "tobozo/arduino-libraries-tooter",
+    "description": "PHP cron-bot specialized in publishing changes from arduino-library-manager index to 🐘 Mastodon network ",
+    "keywords": ["arduino", "arduino-libraries", "library-manager", "mastodon", "fediverse", "bot", "activitypub"],
+    "type": "project",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "tobozo",
+            "email": "tobozo@noreply.github.com"
+        }
+    ],
     "require": {
         "halaxa/json-machine": "^1.1",
         "eleirbag89/mastodonbotphp": "^0.1.0",
