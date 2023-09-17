@@ -10,28 +10,35 @@ use JsonMachine\JsonDecoder\ExtJsonDecoder;
 
 $dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
+$dotenv->required(['MASTODON_API_KEY', 'MASTODON_API_URL', 'WGET_BIN', 'GZIP_BIN', 'DIFF_BIN']);
 
-define("MASTODON_API_KEY", getEnv('MASTODON_API_KEY') );
-define("MASTODON_API_URL", getEnv('MASTODON_API_URL') );
+define("MASTODON_API_KEY", $_ENV['MASTODON_API_KEY'] );
+define("MASTODON_API_URL", $_ENV['MASTODON_API_URL'] );
 
-define("WGET_BIN", getEnv('WGET_BIN') );
-define("GZIP_BIN", getEnv('GZIP_BIN') );
-define("DIFF_BIN", getEnv('DIFF_BIN') );
+define("WGET_BIN", $_ENV['WGET_BIN'] );
+define("GZIP_BIN", $_ENV['GZIP_BIN'] );
+define("DIFF_BIN", $_ENV['DIFF_BIN'] );
 
 define("INDEX_CACHE_DIR", dirname(__FILE__)."/cache");
 define("INDEX_FILE_NAME", "library_index.json");
 define("INDEX_FILE_NAME_GZ", INDEX_FILE_NAME.".gz");
 define("QUEUE_FILE_NAME", "queue.json");
 
-define("INDEX_GZ_URL", "http://downloads.arduino.cc/libraries/".INDEX_FILE_NAME_GZ);
+define("INDEX_GZ_URL", "https://downloads.arduino.cc/libraries/".INDEX_FILE_NAME_GZ);
 define("FS_GZ_FILE", INDEX_CACHE_DIR."/".INDEX_FILE_NAME_GZ);
 define("INDEX_CACHE_FILE", INDEX_CACHE_DIR."/".INDEX_FILE_NAME);
 define("INDEX_CACHE_FILE_OLD", INDEX_CACHE_FILE.".old");
 define("QUEUE_FILE", INDEX_CACHE_DIR."/".QUEUE_FILE_NAME);
 
+echo "MASTODON_API_URL : ".MASTODON_API_URL."\n";
 echo "INDEX_GZ_URL     : ".INDEX_GZ_URL."\n";
 echo "INDEX_CACHE_DIR  : ".INDEX_CACHE_DIR."\n";
 echo "INDEX_CACHE_FILE : ".INDEX_CACHE_FILE."\n";
+echo "WGET_BIN         : ".WGET_BIN."\n";
+echo "GZIP_BIN         : ".GZIP_BIN."\n";
+echo "DIFF_BIN         : ".DIFF_BIN."\n";
+
+//exit;
 
 if(! is_dir( INDEX_CACHE_DIR ) ) {
   mkdir( INDEX_CACHE_DIR );
@@ -78,7 +85,7 @@ if( preg_match_all('/>       "name": "(.*)"/', $diffResult, $matches ) ) {
   }
 } else { // no "name" properties found, error or anomaly ?
   echo $diffResult."\n";
-  echo "Unable to extract library names from diff, aborting\n";
+  echo "No library names found in diff, index is unchanged\n";
   // TODO: notify error
   exit(0);
 }
