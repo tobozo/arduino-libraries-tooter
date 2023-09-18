@@ -10,6 +10,7 @@ use JsonMachine\JsonDecoder\DecodingError;
 use JsonMachine\JsonDecoder\ErrorWrappingDecoder;
 use JsonMachine\JsonDecoder\ExtJsonDecoder;
 use QueueManager\JSONQueue;
+use LogManager\FileLogger;
 
 
 class JSONCache
@@ -22,6 +23,7 @@ class JSONCache
   private $diff_bin;
   private $gz_url;
   private $gz_file;
+  private $logger;
   public $queue;
 
   public function __construct($conf)
@@ -35,6 +37,7 @@ class JSONCache
       || !isset($conf['INDEX_GZ_URL'])
       || !isset($conf['FS_GZ_FILE'])
       || !isset($conf['JSON_QUEUE'])
+      || !isset($conf['LOGGER'])
     ) throw new Exception('Bad configuration');;
 
     $this->cache_dir      = $conf['INDEX_CACHE_DIR'];
@@ -46,6 +49,7 @@ class JSONCache
     $this->gz_url         = $conf['INDEX_GZ_URL'];
     $this->gz_file        = $conf['FS_GZ_FILE'];
     $this->queue          = $conf['JSON_QUEUE']; // new JSONQueue( QUEUE_FILE );
+    $this->logger         = $conf['LOGGER'];
   }
 
 
@@ -53,12 +57,13 @@ class JSONCache
   private function wget()
   {
     // TODO: stream this instead of using exec
-    $ret = exec($this->wget_bin." ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -d -f ".$this->gz_file);
+    $ret = exec($this->wget_bin." -q ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -d -f ".$this->gz_file);
     if( $ret===false || !file_exists($this->cache_file)) {
       return false;
     }
     return $ret;
   }
+
 
   // guess updated library names from JSON diff
   private function getLibraryNamesFromDiff( $diff )
@@ -74,6 +79,7 @@ class JSONCache
     return [];
   }
 
+
   // load/download latest library index file
   public function load()
   {
@@ -83,21 +89,22 @@ class JSONCache
     }
 
     if(! is_dir( $this->cache_dir ) ) {
-      echo "Unable to access cache dir ".$this->cache_dir."\n";
+      $this->logger->log( "[ERROR] Unable to access cache dir ".$this->cache_dir );
       return false;
     }
 
     if(! file_exists( $this->cache_file ) ) { // first run, save a copy of the index file
       if( $this->wget() === false ) {
-        echo "Library Registry Index download failed\n";
+        $this->logger->log( "[ERROR] Library Registry Index download failed");
         return false;
       }
-      echo "Library Registry Index saved\n";
+      $this->logger->log( "[INFO] Library Registry Index saved" );
     } else { // subsequent runs, backup the old index file and download a new copy
       rename( $this->cache_file, $this->cache_file_old );
 
       if( $this->wget() === false ) {
-        echo "Library Registry Index download failed\n";
+        $this->logger->log( "[WARNING] Library Registry Index download failed" );
+        rename( $this->cache_file_old, $this->cache_file );
         return false;
       }
     }
@@ -140,6 +147,7 @@ class JSONCache
     ];
   }
 
+
   // what: compare old and new index file for differences
   // return: diff text or false if both files are simila
   public function changed()
@@ -153,6 +161,7 @@ class JSONCache
     return implode("\n", $diffResult );
   }
 
+
   // what: get new libraries since last cron run
   // return: updated libraries since last cron run
   public function getNewLibraries()
@@ -160,16 +169,16 @@ class JSONCache
     $diffResult = $this->changed();
 
     if( $diffResult===false ) {
-      echo "Library Registry Index is unchanged\n";
+      $this->logger->log( "Library Registry Index is unchanged" );
       return false;
     }
 
-    echo "Library Registry Index changed:\n";
+    $this->logger->log( "Library Registry Index changed:" );
     $updatedLibraries = $this->getLibraryNamesFromDiff( $diffResult );
 
     if( empty( $updatedLibraries ) ) {
-      echo $diffResult."\n";
-      echo "Index changed but no library names found in diff\n";
+      $this->logger->log( $diffResult );
+      $this->logger->log( "Index changed but no library names found in diff" );
       // TODO: notify error
       return false;
     }

@@ -9,6 +9,7 @@ class JSONQueue
 {
 
   private $queue_file;
+  private $logger;
 
 
   public function __construct($queue_file)
