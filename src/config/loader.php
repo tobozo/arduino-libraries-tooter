@@ -6,6 +6,7 @@ $dotenv = Dotenv\Dotenv::createImmutable( $envDir );
 $dotenv->load();
 $dotenv->required(['MASTODON_API_KEY', 'MASTODON_API_URL', 'WGET_BIN', 'GZIP_BIN', 'DIFF_BIN']);
 
+define("MASTODON_ACCOUNT_ID", $_ENV['MASTODON_ACCOUNT_ID'] );
 define("MASTODON_API_KEY", $_ENV['MASTODON_API_KEY'] );
 define("MASTODON_API_URL", $_ENV['MASTODON_API_URL'] );
 

@@ -25,7 +25,7 @@ class FileLogger
     $argv = func_get_args();
 
     $format = array_shift( $argv );
-    $msg = sprintf( $format, $argv );
+    $msg = sprintf( $format, ...$argv );
     $this->log( $msg );
   }
 

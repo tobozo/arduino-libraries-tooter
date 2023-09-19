@@ -57,6 +57,7 @@ class JSONCache
   private function wget()
   {
     // TODO: stream this instead of using exec
+    // TODO: don't overwrite directly, use temp file and transaction
     $ret = exec($this->wget_bin." -q ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -d -f ".$this->gz_file);
     if( $ret===false || !file_exists($this->cache_file)) {
       return false;
@@ -69,12 +70,13 @@ class JSONCache
   private function getLibraryNamesFromDiff( $diff )
   {
     // Regexp matches capture every "name":"blah" property values found in the diff result.
-    // The pattern is perillous, it bets on indentation of the main property and diff format so that
-    // redundant "name":"blah" properties from [dependencies] childnode array can be safely ignored.
-    if( preg_match_all('/>       "name": "(.*)"/', $diff, $matches ) ) {
+    // The pattern is perillous, it bets on the comma at the end of the pair declaration so that
+    // "name":"blah" properties from [dependencies] childnode array can be safely ignored.
+    if( preg_match_all('/>\s+"name": "(.*)",/', $diff, $matches ) ) {
       if( $matches[0] && $matches[1] && count($matches[0]) == count($matches[1]) ) {
         return array_unique($matches[1]);
       }
+      $this->logger->log( "[WARNING] Regexp matches aren't complete: \n".print_r( $matches, 1) );
     }
     return [];
   }
@@ -120,7 +122,7 @@ class JSONCache
     // stream-open the index file for parsing
     $jsonNew = Items::fromFile( $this->cache_file, ['decoder' => new ExtJsonDecoder(true)] );
     // Populate recently updated libraries with the JSON from the index
-    $notifyLibraries = $this->queue->getQueue(); // file_exists(QUEUE_FILE) ? json_decode(file_get_contents(QUEUE_FILE), true) : []; // TODO: populate with
+    $notifyLibraries = $this->queue->getQueue();
     $libraries_count = 0;
     $items_count = 0;
     $last_library_name = "";
@@ -169,24 +171,30 @@ class JSONCache
     $diffResult = $this->changed();
 
     if( $diffResult===false ) {
-      $this->logger->log( "Library Registry Index is unchanged" );
+      $this->logger->log( "[INFO] Library Registry Index is unchanged" );
       return false;
     }
 
-    $this->logger->log( "Library Registry Index changed:" );
     $updatedLibraries = $this->getLibraryNamesFromDiff( $diffResult );
 
+    $this->logger->logf( "[INFO] Library Registry Index changed (found %d items):", count($updatedLibraries) );
+
     if( empty( $updatedLibraries ) ) {
-      $this->logger->log( $diffResult );
-      $this->logger->log( "Index changed but no library names found in diff" );
-      // TODO: notify error
+      $this->logger->log( "[WARNING] No library names found in index diff" );
+      $this->logger->log( "[DIFF]:\n$diffResult" );
       return false;
     }
 
     $report = $this->process( $updatedLibraries );
 
-    if( empty($report['notify']) )
+    if( empty($report['notify']) ) {
+      $this->logger->logf( "[WARNING] Items found in diff are missing in index(%d items, %d libraries): %s",
+        $report['items_count'],
+        $report['libraries_count'],
+        print_r( $updatedLibraries, 1 )
+      );
       $this->queue->gcQueue();
+    }
 
     return $report;
   }
