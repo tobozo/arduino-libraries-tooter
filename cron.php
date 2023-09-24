@@ -5,4 +5,4 @@ require_once(__DIR__ . '/vendor/autoload.php');
 require_once(__DIR__ . '/src/app.php');
 
 $manager = new ArduinoLibToot\Manager;
-$manager->manage();
+$manager->run();

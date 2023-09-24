@@ -27,6 +27,25 @@ Dependencies:
   - https://github.com/halaxa/json-machine
   - https://github.com/vlucas/phpdotenv
 
+RoadMap:
+  - Stop relying on `diff` to find changes in `library_index.json`
+
+  - **GITHUB_API_CACHE** (https://github.com/KnpLabs/php-github-api):
+    - Cache `{owner}/{repo}.json` API response (https://github.com/php-cache/filesystem-adapter):
+      - get/repos/{owner}/{repo} => `stargazers_count`, `forks_count`, `topics`
+      - get/repos/{owner}/{repo}/releases => {draft=false && prerelease=false}? `tag_name`, `name`, `published_at`
+
+
+  - **ONE TIME JOB** Foreach github repo in `library_index.json`
+    - GITHUB_API_CACHE( repo )
+
+  - **CRON JOB** Foreach `arduinorepo` in `library_index.json`
+    - Compare `arduinorepo` state with `library_index.consolidated.json` state, create/update GITHUB_API_CACHE if necessary
+    - Get `githubrepo` from GITHUB_API_CACHE
+    - Compare semver between `arduinorepo`.version and `githubrepo`.version, keep highest
+    - Add {`name`,`version`,`architectures[]`, `author`, `url`, `description`, `hashtags[]`} to `library_index.consolidated.json`
+
+
 Resources:
   - https://downloads.arduino.cc/libraries/library_index.json.gz
   - https://www.arduino.cc/reference/en/libraries/
