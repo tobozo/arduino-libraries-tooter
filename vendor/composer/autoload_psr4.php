@@ -13,4 +13,5 @@ return array(
     'JsonMachine\\' => array($vendorDir . '/halaxa/json-machine/src'),
     'GrahamCampbell\\ResultType\\' => array($vendorDir . '/graham-campbell/result-type/src'),
     'Dotenv\\' => array($vendorDir . '/vlucas/phpdotenv/src'),
+    'Composer\\Semver\\' => array($vendorDir . '/composer/semver/src'),
 );

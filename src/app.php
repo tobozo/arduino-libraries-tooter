@@ -14,80 +14,101 @@ use CacheManager\JSONCache;
 use QueueManager\JSONQueue;
 use SocialPlatform\MastodonStatus;
 use LogManager\FileLogger;
+use Composer\Semver\Comparator;
+
+
 
 class Manager
 {
   private $cache;
   private $queue;
   private $mastodon;
-  private $bsky;
   private $logger;
+  private $max_posts_per_run = 5;
 
   public function __construct()
   {
-    $this->logger   = new FileLogger( LOG_FILE_NAME );
-    $this->queue    = new JSONQueue( QUEUE_FILE );
+    $this->logger   = new FileLogger( ENV_DIR );
+    $this->queue    = new JSONQueue( INDEX_CACHE_DIR );
     $this->mastodon = new MastodonStatus(MASTODON_API_KEY, MASTODON_API_URL, MASTODON_ACCOUNT_ID);
     $this->cache    = new JSONCache([
-      'INDEX_CACHE_DIR'      => INDEX_CACHE_DIR,
-      'INDEX_CACHE_FILE'     => INDEX_CACHE_FILE,
-      'INDEX_CACHE_FILE_OLD' => INDEX_CACHE_FILE_OLD,
-      'WGET_BIN'             => WGET_BIN,
-      'GZIP_BIN'             => GZIP_BIN,
-      'DIFF_BIN'             => DIFF_BIN,
-      'INDEX_GZ_URL'         => INDEX_GZ_URL,
-      'FS_GZ_FILE'           => FS_GZ_FILE,
-      'JSON_QUEUE'           => $this->queue,
-      'LOGGER'               => $this->logger
+      'cache_dir' => INDEX_CACHE_DIR,
+      'wget_bin'  => WGET_BIN,
+      'gzip_bin'  => GZIP_BIN,
+      'logger'    => $this->logger
     ]);
     $this->mastodon->logger  = $this->logger;
   }
 
 
-  public function manage()
+  public function run()
   {
-    // fetch last posts and extract library names + versions to prevent duplicate posts
-    $lastItems = $this->mastodon->getLastItems( 30 );
+    // 1) load queued libraries from local file
+    $queuedLibraries = $this->queue->getQueue();
+
+    // 2) get mastodon last posted items
+    $lastItems = $this->mastodon->getLastItems();
 
     if( !$lastItems || count($lastItems)==0 ) {
-      $this->logger->log("[ERROR] No post history found on this account");
+      $this->logger->log("[ERROR] No post history to process, create one manually and pin it!");
+      // goto _processQueue;
       return;
     }
 
+    // 3) fetch arduino registry index
     if( !$this->cache->load() ) {
+      // cache load failed, no need to compare indexes, only process queue
+      goto _processQueue;
       return;
     }
 
-    $report = $this->cache->getNewLibraries();
+    // 4) compute diff between current and old indexes
+    $pruned = $this->cache->getPrunedIndexes();
 
-    if( $report === false || empty($report['notify']) ) {
-      // $this->logger->log("[INFO] No new posts");
-      exit(0);
+    // 5) if $pruned has new stuff, merge it in $queuedLibraries and save queue
+    if( count($pruned['current'])>0 && count($pruned['old'])>0 ) {
+      $diff = $this->cache->array_diff_by_key($pruned['current'], $pruned['old'], 'version');
+      if( count($diff['>'])>0 ) {
+        foreach( $diff['>'] as $name => $props ) {
+          $queuedLibraries[$name] = $props;
+        }
+        $this->queue->saveQueue( $queuedLibraries );
+      }
     }
 
-    $this->logger->logf("Cached index has %d items and %d libraries\n", $report['items_count'], $report['libraries_count'] );
-    $this->logger->logf("%d item(s) updated in this index: %s\n", count( $report['notify'] ), implode(", ", array_keys($report['notify']) ) );
 
-    $this->queue->saveQueue( $report['notify'] );
+    _processQueue:
 
-    // process library notification queue
-    foreach( $report['notify'] as $libraryName => $notifyLibrary ) {
-      // manage queue
-      if( in_array( $libraryName, array_keys($lastItems) ) && $notifyLibrary['version']==$lastItems[$libraryName] ) {
+    if( count( $queuedLibraries ) == 0 ) {
+      $this->logger->log("[INFO] Library Registry Index is unchanged");
+      return;
+    }
+
+    // process notification queue
+    foreach( $queuedLibraries as $name => $item ) {
+      // handle queue item
+      if( in_array( $name, array_keys($lastItems) ) && $item['version']==$lastItems[$name] ) {
         // duplicate post, skip !
-        $this->logger->logf("[WARNING] Duplicate post for %s (%s), skipping", $notifyLibrary['name'], $notifyLibrary['version'] );
-        unset($report['notify'][$libraryName]);
-        $this->queue->saveQueue( $report['notify'] );
+        $this->logger->logf("[WARNING] Duplicate post for %s (%s), skipping", $item['name'], $item['version'] );
+        unset($queuedLibraries[$name]);
+        $this->queue->saveQueue( $queuedLibraries );
         continue;
       }
-      if( $this->mastodon->publish( $notifyLibrary ) ) {
-        unset($report['notify'][$libraryName]);
+      // $item = $this->mastodon->processItem( $item );
+      // echo sprintf("[DEBUG][SHOULD NOTIFY] %s => %s\n%s\n", $name, print_r( $item, true ), $this->mastodon->format( $item ) );
+      // unset($queuedLibraries[$name]);
+      // // save updated queue file
+      // $this->queue->saveQueue( $queuedLibraries );
+      if( $this->mastodon->publish( $item ) ) {
+        unset($queuedLibraries[$name]);
         // save updated queue file
-        $this->queue->saveQueue( $report['notify'] );
+        $this->queue->saveQueue( $queuedLibraries );
+        // avoid spam
+        if( $max_posts_per_run--<=0 ) return;
       }
-      // throttle
-      sleep(1);
+      sleep(1); // throttle
     }
-  }
 
+  }
 }
+
