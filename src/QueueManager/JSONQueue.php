@@ -9,18 +9,17 @@ class JSONQueue
 {
 
   private $queue_file_name = "queue.json";
-
   private $queue_file;
 
-  public function __construct($cache_dir)
+  public function __construct($queue_dir)
   {
-    if(! is_dir( $cache_dir ) ) {
-      mkdir( $cache_dir );
+    if(! is_dir( $queue_dir ) ) {
+      mkdir( $queue_dir );
     }
-    if( !is_dir( $cache_dir ) ) {
-      throw new \Exception("Cache dir not created: $cache_dir");
+    if( !is_dir( $queue_dir ) ) {
+      throw new \Exception("Queue dir not created: $queue_dir");
     }
-    $this->queue_file = $cache_dir.'/'.$this->queue_file_name;
+    $this->queue_file = $queue_dir.'/'.$this->queue_file_name;
   }
 
 

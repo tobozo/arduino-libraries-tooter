@@ -18,8 +18,8 @@ Requirements:
 Quick Start:
 
   - Copy `.env.example` to `.env`
-  - Edit the `.env` file to set `MASTODON_API_KEY` and `MASTODON_API_URL` values, then save
-  - set `cron.php` as a hourly crontab `0 * * * * cd /path/to/arduino-libraries-announcer/ && /usr/bin/php cron.php >> logfile.txt`
+  - Edit the `.env` file to set `MASTODON_API_KEY` and `MASTODON_API_URL` and `MASTODON_ACCOUNT_ID` values, then save
+  - set `cron.php` as a hourly crontab `0 * * * * cd /path/to/arduino-libraries-announcer/ && /usr/bin/php cron.php >> logfile.txt 2>&1`
 
 
 Dependencies:

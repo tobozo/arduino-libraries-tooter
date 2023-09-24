@@ -48,7 +48,6 @@ class JSONCache
     $this->cache_file_tmp        = $this->cache_dir."/".$this->index_file_name.".tmp";
     $this->cache_file_old        = $this->cache_dir."/".$this->index_file_name.".old";
 
-
     if(! is_dir( $this->cache_dir ) ) {
       mkdir( $this->cache_dir );
     }
