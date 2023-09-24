@@ -8,13 +8,19 @@ namespace QueueManager;
 class JSONQueue
 {
 
+  private $queue_file_name = "queue.json";
+
   private $queue_file;
-  private $logger;
 
-
-  public function __construct($queue_file)
+  public function __construct($cache_dir)
   {
-    $this->queue_file = $queue_file;
+    if(! is_dir( $cache_dir ) ) {
+      mkdir( $cache_dir );
+    }
+    if( !is_dir( $cache_dir ) ) {
+      throw new \Exception("Cache dir not created: $cache_dir");
+    }
+    $this->queue_file = $cache_dir.'/'.$this->queue_file_name;
   }
 
 

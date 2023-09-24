@@ -11,54 +11,94 @@ use JsonMachine\JsonDecoder\ErrorWrappingDecoder;
 use JsonMachine\JsonDecoder\ExtJsonDecoder;
 use QueueManager\JSONQueue;
 use LogManager\FileLogger;
+use Composer\Semver\Comparator;
 
 
 class JSONCache
 {
+  private $index_file_name    = "library_index.json";
+  private $index_file_name_gz = "library_index.json.gz";
+  private $unique_file_name   = "unique_libraries.json";
+
   private $cache_dir;
   private $cache_file;
   private $cache_file_old;
+  private $cache_file_tmp;
   private $wget_bin;
   private $gzip_bin;
-  private $diff_bin;
   private $gz_url;
   private $gz_file;
   private $logger;
-  public $queue;
 
   public function __construct($conf)
   {
-    if(  !isset($conf['INDEX_CACHE_DIR'])
-      || !isset($conf['INDEX_CACHE_FILE'])
-      || !isset($conf['INDEX_CACHE_FILE_OLD'])
-      || !isset($conf['WGET_BIN'])
-      || !isset($conf['GZIP_BIN'])
-      || !isset($conf['DIFF_BIN'])
-      || !isset($conf['INDEX_GZ_URL'])
-      || !isset($conf['FS_GZ_FILE'])
-      || !isset($conf['JSON_QUEUE'])
-      || !isset($conf['LOGGER'])
-    ) throw new Exception('Bad configuration');;
+    if(  !isset($conf['cache_dir'])
+      || !isset($conf['wget_bin'])
+      || !isset($conf['gzip_bin'])
+      || !isset($conf['logger'])
+    ) { throw new \Exception('Bad configuration'); }
 
-    $this->cache_dir      = $conf['INDEX_CACHE_DIR'];
-    $this->cache_file     = $conf['INDEX_CACHE_FILE'];
-    $this->cache_file_old = $conf['INDEX_CACHE_FILE_OLD'];
-    $this->wget_bin       = $conf['WGET_BIN'];
-    $this->gzip_bin       = $conf['GZIP_BIN'];
-    $this->diff_bin       = $conf['DIFF_BIN'];
-    $this->gz_url         = $conf['INDEX_GZ_URL'];
-    $this->gz_file        = $conf['FS_GZ_FILE'];
-    $this->queue          = $conf['JSON_QUEUE']; // new JSONQueue( QUEUE_FILE );
-    $this->logger         = $conf['LOGGER'];
+    $this->wget_bin              = $conf['wget_bin'];
+    $this->gzip_bin              = $conf['gzip_bin'];
+    $this->logger                = $conf['logger'];
+    $this->cache_dir             = $conf['cache_dir'];
+    $this->gz_url                = "https://downloads.arduino.cc/libraries/".$this->index_file_name_gz;
+    $this->gz_file               = $this->cache_dir."/".$this->index_file_name_gz;
+    $this->cache_file            = $this->cache_dir."/".$this->index_file_name;
+    $this->cache_file_tmp        = $this->cache_dir."/".$this->index_file_name.".tmp";
+    $this->cache_file_old        = $this->cache_dir."/".$this->index_file_name.".old";
+
+
+    if(! is_dir( $this->cache_dir ) ) {
+      mkdir( $this->cache_dir );
+    }
+
+    if(! is_dir( $this->cache_dir ) ) {
+      throw new \Exception( "[ERROR] Unable to create cache dir ".$this->cache_dir );
+    }
+  }
+
+
+  // load/download latest library index file
+  public function load()
+  {
+    if(! file_exists( $this->cache_file ) || filesize($this->cache_file)==0 ) { // first run, no backup needed
+      if( $this->wget() === false ) {
+        $this->logger->log( "[ERROR] Library Registry Index download failed");
+        return false;
+      }
+      $this->logger->log( "[INFO] Library Registry Index saved (first run)" );
+      return false;
+    } else { // subsequent runs, backup the old index file and download a new copy
+      rename( $this->cache_file, $this->cache_file_tmp );
+
+      if( $this->wget() === false ) {
+        $this->logger->log( "[WARNING] Library Registry Index download skipped" );
+        rename( $this->cache_file_tmp, $this->cache_file ); // restore backup since download failed
+        return false;
+      }
+      rename( $this->cache_file_tmp, $this->cache_file_old ); // commit backup
+    }
+    return true;
   }
 
 
   // download remote file
   private function wget()
   {
-    // TODO: stream this instead of using exec
-    // TODO: don't overwrite directly, use temp file and transaction
-    $ret = exec($this->wget_bin." -q ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -d -f ".$this->gz_file);
+    if( file_exists( $this->gz_file ) ) {
+      $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
+      if( isset($resp['headers']['last-modified']) && isset($resp['headers']['expires']) )
+        $this->logger->logf("[DEBUG] Status:%s, last-modified:%s, expires:%s\n", $resp['status'], $resp['headers']['last-modified'][0], $resp['headers']['expires'][0] );
+      if( $resp['status'] == 304 ) {
+        $this->logger->log("[INFO] Remote file is unchanged (status 304), extracting from local");
+        $ret = exec($this->gzip_bin." -k -d -f ".$this->gz_file);
+        if( file_exists($this->cache_file) )
+          return true;
+      }
+    }
+
+    $ret = exec($this->wget_bin." -q ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -k -d -f ".$this->gz_file);
     if( $ret===false || !file_exists($this->cache_file)) {
       return false;
     }
@@ -66,138 +106,118 @@ class JSONCache
   }
 
 
-  // guess updated library names from JSON diff
-  private function getLibraryNamesFromDiff( $diff )
+
+  private function curl_http_head( $url, $extra_header )
   {
-    // Regexp matches capture every "name":"blah" property values found in the diff result.
-    // The pattern is perillous, it bets on the comma at the end of the pair declaration so that
-    // "name":"blah" properties from [dependencies] childnode array can be safely ignored.
-    if( preg_match_all('/>\s+"name": "(.*)",/', $diff, $matches ) ) {
-      if( $matches[0] && $matches[1] && count($matches[0]) == count($matches[1]) ) {
-        return array_unique($matches[1]);
-      }
-      $this->logger->log( "[WARNING] Regexp matches aren't complete: \n".print_r( $matches, 1) );
-    }
-    return [];
-  }
+    $ch = curl_init();
+    $headers = [];
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+    if(!empty($extra_header))
+      curl_setopt($ch, CURLOPT_HTTPHEADER, $extra_header );
+    // This changes the request method to HEAD
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
+    curl_setopt($ch, CURLOPT_NOBODY, true);
+    // this function is called by curl for each header received
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function($curl, $header) use (&$headers) {
+      $len = strlen($header);
+      $header = explode(':', $header, 2);
+      if (count($header) < 2) // ignore invalid headers
+        return $len;
+      $headers[strtolower(trim($header[0]))][] = trim($header[1]);
+      return $len;
+    });
 
-
-  // load/download latest library index file
-  public function load()
-  {
-
-    if(! is_dir( $this->cache_dir ) ) {
-      mkdir( $this->cache_dir );
-    }
-
-    if(! is_dir( $this->cache_dir ) ) {
-      $this->logger->log( "[ERROR] Unable to access cache dir ".$this->cache_dir );
-      return false;
-    }
-
-    if(! file_exists( $this->cache_file ) ) { // first run, save a copy of the index file
-      if( $this->wget() === false ) {
-        $this->logger->log( "[ERROR] Library Registry Index download failed");
-        return false;
-      }
-      $this->logger->log( "[INFO] Library Registry Index saved" );
-    } else { // subsequent runs, backup the old index file and download a new copy
-      rename( $this->cache_file, $this->cache_file_old );
-
-      if( $this->wget() === false ) {
-        $this->logger->log( "[WARNING] Library Registry Index download failed" );
-        rename( $this->cache_file_old, $this->cache_file );
-        return false;
-      }
-    }
-    return true;
-  }
-
-
-  // in: array of library names
-  // out: array of library properties + count
-  // what: iterate library index to collect library info from provided library names
-  private function process( $updatedLibraries )
-  {
-    // stream-open the index file for parsing
-    $jsonNew = Items::fromFile( $this->cache_file, ['decoder' => new ExtJsonDecoder(true)] );
-    // Populate recently updated libraries with the JSON from the index
-    $notifyLibraries = $this->queue->getQueue();
-    $libraries_count = 0;
-    $items_count = 0;
-    $last_library_name = "";
-
-    foreach ($jsonNew as $id => $libraries) {
-      if( $id === 'libraries' ) {
-        foreach( $libraries as $pos => $library ) {
-          if( in_array( $library["name"], $updatedLibraries ) ) {
-            $notifyLibraries[$library["name"]] = $library;
-          }
-          if( $library["name"] != $last_library_name ) {
-            $last_library_name = $library["name"];
-            $libraries_count++;
-          }
-          $items_count++;
-        }
-      }
-    }
+    $data = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
     return [
-      'notify'          => $notifyLibraries,
-      'libraries_count' => $libraries_count,
-      'items_count'     => $items_count
+      'status'   => $status,
+      'response' => $data,
+      'headers'  => $headers
     ];
   }
 
 
-  // what: compare old and new index file for differences
-  // return: diff text or false if both files are simila
-  public function changed()
+
+  public function array_diff_by_key( $arr1, $arr2, $key='version' )
   {
-    // compare old and new file
-    exec( $this->diff_bin." ".$this->cache_file_old." ".$this->cache_file, $diffResult );
-    if( empty($diffResult) ) { // no change
-      return false;
+    $ret = [
+      '>' => [], // added
+      '<' => []  // removed
+    ];
+    foreach( $arr1 as $name => $props ) {
+      if( !isset( $arr2[$name] ) || $arr2[$name][$key]!=$props[$key]) {
+        $ret['>'][$name] = $props;
+      }
     }
-    // join the diff string array into a single string, for later use with regexp
-    return implode("\n", $diffResult );
+    foreach( $arr2 as $name => $props ) {
+      if( !isset( $arr1[$name] ) || $arr1[$name][$key]!=$props[$key]) {
+        $ret['<'][$name] = $props;
+      }
+    }
+    return $ret;
   }
 
 
-  // what: get new libraries since last cron run
-  // return: updated libraries since last cron run
-  public function getNewLibraries()
+
+  private function pruneLibrary( $lib_obj, &$storage, $comparator )
   {
-    $diffResult = $this->changed();
+    $item = &$storage[$lib_obj['name']];
 
-    if( $diffResult===false ) {
-      $this->logger->log( "[INFO] Library Registry Index is unchanged" );
-      return false;
+    if( isset( $item ) ) {
+      if( $comparator($lib_obj['version'], $item['version'] ) ) {
+        return; // don't update storage
+      }
     }
 
-    $updatedLibraries = $this->getLibraryNamesFromDiff( $diffResult );
+    $item['name']          = $lib_obj['name'];
+    $item['version']       = $lib_obj['version'];
+    $item['author']        = $lib_obj['author'];
+    $item['repository']    = $lib_obj['repository'];
+    $item['sentence']      = $lib_obj['sentence'];
+    $item['architectures'] = $lib_obj['architectures'];
 
-    $this->logger->logf( "[INFO] Library Registry Index changed (found %d items):", count($updatedLibraries) );
-
-    if( empty( $updatedLibraries ) ) {
-      $this->logger->log( "[WARNING] No library names found in index diff" );
-      $this->logger->log( "[DIFF]:\n$diffResult" );
-      return false;
+    if( preg_match("#^(https|git)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+).git$#", $lib_obj["repository"], $match ) ) {
+      $item[$match[3]] = [
+        'user'    => $match[4],
+        'repo'    => $match[5]
+      ];
     }
-
-    $report = $this->process( $updatedLibraries );
-
-    if( empty($report['notify']) ) {
-      $this->logger->logf( "[WARNING] Items found in diff are missing in index(%d items, %d libraries): %s",
-        $report['items_count'],
-        $report['libraries_count'],
-        print_r( $updatedLibraries, 1 )
-      );
-      $this->queue->gcQueue();
-    }
-
-    return $report;
   }
+
+
+  // store libraries by names, keep highest version
+  private function getPrunedIndex( $index_file_path, $uniqueLibraries=[] )
+  {
+    $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
+    foreach ($jsonIndex as $id => $libraries) {
+      if( $id === 'libraries' ) {
+        foreach( $libraries as $pos => $library ) {
+          $this->pruneLibrary( $library, $uniqueLibraries, "Composer\Semver\Comparator::lessThanOrEqualTo" );
+        }
+      }
+    }
+    return $uniqueLibraries;
+  }
+
+
+
+  public function getPrunedIndexes()
+  {
+    $ret = [
+      'current' => [],
+      'old'     => []
+    ];
+    if( file_exists( $this->cache_file ) ) {
+      $ret['current'] = $this->getPrunedIndex( $this->cache_file );
+    }
+    if( file_exists( $this->cache_file_old ) ) {
+      $ret['old']     = $this->getPrunedIndex( $this->cache_file_old );
+    }
+    return $ret;
+  }
+
 
 
 }

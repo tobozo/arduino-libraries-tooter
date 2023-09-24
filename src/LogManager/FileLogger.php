@@ -10,12 +10,17 @@ class FileLogger
 
   private $log_file;
 
-  public function __construct($log_file)
+  public function __construct($log_file_dir, $log_file_name="logfile.txt")
   {
-    $this->log_file = $log_file;
+    if(! is_dir( $log_file_dir ) ) {
+      mkdir( $log_file_dir );
+    }
+    if(! is_dir( $log_file_dir ) ) {
+      throw new \Exception( "[ERROR] Unable to create log dir ".$log_file_dir );
+    }
+    $this->log_file = $log_file_dir.'/'.$log_file_name;
     // guess the timezone from a real system source, don't trust the php.ini
-    $timezone = $_SERVER['TZ'] ??
-        trim(file_get_contents('/etc/timezone') ?: file_get_contents('/etc/localtime'));
+    $timezone = $_SERVER['TZ'] ?? trim(file_get_contents('/etc/timezone') ?: file_get_contents('/etc/localtime'));
     date_default_timezone_set( $timezone ); // override default timezone value (usually UTC)
   }
 
