@@ -23,7 +23,7 @@ class JSONQueue
 
 
   // return JSON array from queue file
-  public function get()
+  public function get(): array
   {
     // TODO: handle invalid contents (non JSON) in QUEUE_FILE
     return file_exists($this->queue_file)

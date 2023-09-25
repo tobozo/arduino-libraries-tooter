@@ -18,15 +18,20 @@ class MastodonStatus extends MastodonAPI
   public object $logger;
 
 
-  public function __construct( string $token, string $instance_url, string $account_id )
+  public function __construct( array $conf )
   {
-    parent::__construct($token, $instance_url);
-    $this->account_id = $account_id;
+    foreach( ['token', 'instance_url', 'account_id'] as $name ) {
+      if( !isset( $conf[$name] ) )
+      throw new \Exception("Missing conf[$name]");
+    }
+
+    parent::__construct($conf['token'], $conf['instance_url']);
+    $this->account_id = $conf['account_id'];
   }
 
   // create a formatted message from item properties
   // return formatted message
-  public function format( array $item )
+  public function format( array $item ): string
   {
     // populate message
     return sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
@@ -43,7 +48,7 @@ class MastodonStatus extends MastodonAPI
 
   // process and post $item to mastodon network
   // return bool
-  public function publish( array $item )
+  public function publish( array $item ): bool
   {
     $item = $this->processItem( $item );
     return $this->post( $item );
@@ -52,7 +57,7 @@ class MastodonStatus extends MastodonAPI
 
   // prepare message properties
   // return processed item
-  public function processItem( array $item )
+  public function processItem( array $item ): array
   {
     // cleanup author field from email artefacts (enclosed by <>)
     $item['author'] = trim( preg_replace("/<[^>]+>/", "", $item['author'] ) );
@@ -81,7 +86,7 @@ class MastodonStatus extends MastodonAPI
 
   // format and post $item as a new status to mastodon network
   // return bool
-  private function post( array $item )
+  private function post( array $item ): bool
   {
     // ActivityPub status properties
     $status_data = [
@@ -92,7 +97,7 @@ class MastodonStatus extends MastodonAPI
     // Publish to fediverse
     $resp = $this->postStatus($status_data);
     // API call failed, something wrong, result should be JSON object or array
-    if( !$resp || empty($resp) ) {
+    if( !$resp /*|| empty($resp)*/ ) {
       $this->logger->logf("[ERROR] (bad response) for %s (%s)\n", $item['name'], $item['version'] );
       return false;
     }
@@ -114,14 +119,14 @@ class MastodonStatus extends MastodonAPI
   // retrieve last $max_count statuses from mastodon account
   // extract library name+version from posts
   // return array of library pairs [$name] => [$version]
-  public function getLastItems( int $max_count=30 )
+  public function getLastItems( int $max_count=30 ): array
   {
     $args = [ 'limit' => $max_count ];
     $ret = $this->callAPI( "/api/v1/accounts/".$this->account_id."/statuses", 'GET', $args);
 
     if( !$ret || ! is_array($ret ) || empty($ret) ) {
       $this->logger->logf("[ERROR] Could not fetch last posts (resp=%s)", $ret);
-      return false;
+      return [];
     }
 
     $items = [];
@@ -133,7 +138,7 @@ class MastodonStatus extends MastodonAPI
       }
       // fetch library name and version
       if( preg_match("/<p>([^(]+)\(([^)]+)\)/", $post['content'], $matches ) ) {
-        if( isset($matches) && count($matches)==3 && !empty($matches[0]) && !empty($matches[1]) && !empty($matches[2]) ) {
+        if( count($matches)==3 && !empty($matches[0]) && !empty($matches[1]) && !empty($matches[2]) ) {
           $name    = trim($matches[1]);
           $version = trim($matches[2]);
           // check if the library/version from this post is unset or higher version

@@ -3,4 +3,7 @@ cache/*
 *.swp
 build/
 vendor/
+tools/
+.phive/
+psalm.xml
 logfile.txt

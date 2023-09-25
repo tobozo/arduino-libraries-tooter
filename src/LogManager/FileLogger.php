@@ -26,25 +26,25 @@ class FileLogger
 
 
   // same signature as sprintf()
-  public function logf()
+  public function logf(): bool
   {
     $argv = func_get_args();
     $format = array_shift( $argv );
     $msg = sprintf( $format, ...$argv );
-    $this->log( $msg );
+    return $this->log( $msg );
   }
 
 
   // append message to log file
   // return bool
-  public function log( string $msg )
+  public function log( string $msg ): bool
   {
-    return file_put_contents($this->log_file, $this->timestamp().trim($msg).PHP_EOL , FILE_APPEND | LOCK_EX);
+    return !!file_put_contents($this->log_file, $this->timestamp().trim($msg).PHP_EOL , FILE_APPEND | LOCK_EX);
   }
 
 
   // return a formatted timestamp
-  private function timestamp()
+  private function timestamp(): string
   {
     $dt = new \DateTime();
     // override default timezone value (usually UTC)

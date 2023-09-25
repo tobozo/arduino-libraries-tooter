@@ -17,26 +17,30 @@ use SocialPlatform\MastodonStatus;
 use Composer\Semver\Comparator;
 
 
-class Manager
+class App
 {
-  private object $cache;
-  private object $queue;
-  private object $mastodon;
-  private object $logger;
+  private JSONCache $cache;
+  private JSONQueue $queue;
+  private MastodonStatus $mastodon;
+  private FileLogger $logger;
   private int $max_posts_per_run = 5;
 
   public function __construct()
   {
     $this->logger   = new FileLogger( ENV_DIR );
     $this->queue    = new JSONQueue( INDEX_CACHE_DIR );
-    $this->mastodon = new MastodonStatus(MASTODON_API_KEY, MASTODON_API_URL, MASTODON_ACCOUNT_ID);
+    $this->mastodon = new MastodonStatus([
+      'token'        => MASTODON_API_KEY,
+      'instance_url' => MASTODON_API_URL,
+      'account_id'   => MASTODON_ACCOUNT_ID
+    ]);
     $this->cache    = new JSONCache([
       'cache_dir' => INDEX_CACHE_DIR,
       'wget_bin'  => WGET_BIN,
       'gzip_bin'  => GZIP_BIN,
       'logger'    => $this->logger
     ]);
-    $this->mastodon->logger  = $this->logger;
+    $this->mastodon->logger = $this->logger;
   }
 
 
@@ -111,3 +115,6 @@ class Manager
   }
 }
 
+
+$app = new App;
+$app->run();

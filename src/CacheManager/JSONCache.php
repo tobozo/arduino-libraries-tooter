@@ -26,7 +26,7 @@ class JSONCache
   private string $gzip_bin;
   private string $gz_url;
   private string $gz_file;
-  private object $logger;
+  private FileLogger $logger;
 
   public function __construct( array $conf )
   {
@@ -57,7 +57,7 @@ class JSONCache
 
   // load/download latest library index file
   // return bool
-  public function load()
+  public function load(): bool
   {
     if(! file_exists( $this->cache_file ) || filesize($this->cache_file)==0 ) { // first run, no backup needed
       if( $this->wget() === false ) {
@@ -82,7 +82,7 @@ class JSONCache
 
   // http-head remote file, and download if status !=304
   // return bool
-  private function wget()
+  private function wget(): bool
   {
     if( file_exists( $this->gz_file ) ) {
       $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
@@ -106,7 +106,7 @@ class JSONCache
 
   // send http HEAD query, return status/headers
   // return array of status/data/headers
-  private function curl_http_head( string $url, array $extra_header=[] )
+  private function curl_http_head( string $url, array $extra_header=[] ): array
   {
     $ch = curl_init();
     $headers = [];
@@ -140,7 +140,7 @@ class JSONCache
 
   // compare arr1 and arr2 items by key
   // return bidirectional diff, git style
-  public function array_diff_by_key( array $arr1, array $arr2, string $key='version' )
+  public function array_diff_by_key( array $arr1, array $arr2, string $key='version' ): array
   {
     $ret = [
       '>' => [], // added
@@ -191,7 +191,7 @@ class JSONCache
 
   // store libraries by names, keep highest version
   // return populated array
-  private function getPrunedIndex( string $index_file_path, array $items=[] )
+  private function getPrunedIndex( string $index_file_path, array $items=[] ): array
   {
     $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
     foreach ($jsonIndex as $id => $libraries) {
@@ -207,7 +207,7 @@ class JSONCache
 
   // get unique libraries with their highest versions for current and old indexes
   // return pruned indexes for current and old indexes
-  public function getPrunedIndexes()
+  public function getPrunedIndexes(): array
   {
     $ret = [
       'current' => [],
