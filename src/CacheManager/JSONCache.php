@@ -30,13 +30,12 @@ class JSONCache
 
   public function __construct( array $conf )
   {
-    foreach( ['cache_dir', 'wget_bin', 'gzip_bin', 'logger'] as $name ) {
+    foreach( ['cache_dir', 'gzip_bin', 'logger'] as $name ) {
       if( !isset( $conf[$name] ) )
       throw new \Exception("Missing conf[$name]");
     }
 
     $this->logger                = $conf['logger'];
-    $this->wget_bin              = $conf['wget_bin'];
     $this->gzip_bin              = $conf['gzip_bin'];
     $this->cache_dir             = $conf['cache_dir'];
     $this->cache_file            = $this->cache_dir."/".$this->index_file_name;
@@ -60,7 +59,7 @@ class JSONCache
   public function load(): bool
   {
     if(! file_exists( $this->cache_file ) || filesize($this->cache_file)==0 ) { // first run, no backup needed
-      if( $this->wget() === false ) {
+      if( $this->curl_http_wget() === false ) {
         $this->logger->log( "[ERROR] Library Registry Index download failed");
         return false;
       }
@@ -69,7 +68,7 @@ class JSONCache
     } else { // subsequent runs, backup the old index file and download a new copy
       rename( $this->cache_file, $this->cache_file_tmp );
 
-      if( $this->wget() === false ) {
+      if( $this->curl_http_wget() === false ) {
         $this->logger->log( "[WARNING] Library Registry Index download skipped" );
         rename( $this->cache_file_tmp, $this->cache_file ); // restore backup since download failed
         return false;
@@ -82,7 +81,7 @@ class JSONCache
 
   // http-head remote file, and download if status !=304
   // return bool
-  private function wget(): bool
+  private function curl_http_wget()
   {
     if( file_exists( $this->gz_file ) ) {
       $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
@@ -96,12 +95,37 @@ class JSONCache
       }
     }
 
-    $ret = exec($this->wget_bin." -q ".$this->gz_url." -O ".$this->gz_file." && ".$this->gzip_bin." -k -d -f ".$this->gz_file);
-    if( $ret===false || !file_exists($this->cache_file)) {
+    $out_file = fopen($this->gz_file, "w");// or die("cannot open" . $this->gz_file);
+
+    if( !$out_file ) {
+      $this->logger->log("[ERROR] Local cache is not writeable");
       return false;
     }
-    return !!$ret;
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $this->gz_url);
+    curl_setopt($ch, CURLOPT_FILE, $out_file);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30); // timeout is 30 seconds, to download the large files you may need to increase the timeout limit.
+
+    $ret = false;
+
+    // Running curl to download file
+    curl_exec($ch);
+    if (curl_errno($ch)) {
+      $this->logger->log("the cURL error is : " . curl_error($ch));
+    } else {
+      $status = curl_getinfo($ch);
+      if( $status["http_code"] == 200 ) $ret = true;
+      else $this->logger->log("The error code is : " . $status["http_code"]);
+    }
+
+    // close and finalize the operations.
+    curl_close($ch);
+    fclose($out_file);
+
+    return $ret && file_exists($this->cache_file) && filesize($this->cache_file)>0;
   }
+
 
 
   // send http HEAD query, return status/headers

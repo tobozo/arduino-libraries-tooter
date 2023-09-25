@@ -37,7 +37,6 @@ class App
     ]);
     $this->cache    = new JSONCache([
       'cache_dir' => INDEX_CACHE_DIR,
-      'wget_bin'  => WGET_BIN,
       'gzip_bin'  => GZIP_BIN,
       'logger'    => $this->logger
     ]);
