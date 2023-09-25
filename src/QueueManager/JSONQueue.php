@@ -34,7 +34,7 @@ class JSONQueue
 
 
   // delete queue file
-  public function gc()
+  public function gc(): void
   {
     if( file_exists($this->queue_file) )
       unlink($this->queue_file);
@@ -42,7 +42,7 @@ class JSONQueue
 
 
   // save array in queue file
-  public function save( array $queue )
+  public function save( array $queue ): void
   {
     if( !empty( $queue ) )
       file_put_contents( $this->queue_file, json_encode($queue) );

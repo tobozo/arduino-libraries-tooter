@@ -91,7 +91,7 @@ class JSONCache
       if( $resp['status'] == 304 ) {
         $this->logger->log("[INFO] Remote file is unchanged (status 304), extracting from local");
         $ret = exec($this->gzip_bin." -k -d -f ".$this->gz_file);
-        if( file_exists($this->cache_file) )
+        if( $ret && file_exists($this->cache_file) )
           return true;
       }
     }
@@ -100,7 +100,7 @@ class JSONCache
     if( $ret===false || !file_exists($this->cache_file)) {
       return false;
     }
-    return true;
+    return !!$ret;
   }
 
 
@@ -118,7 +118,7 @@ class JSONCache
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
     curl_setopt($ch, CURLOPT_NOBODY, true);
     // this function is called by curl for each header received
-    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function($curl, $header) use (&$headers) {
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function(\CurlHandle $ch, string $header) use (&$headers) {
       $len = strlen($header);
       $header = explode(':', $header, 2);
       if (count($header) < 2) // ignore invalid headers
@@ -163,7 +163,7 @@ class JSONCache
   // find $lib_obj item in $storage collection
   // if item exists and comparator matches: keep existing item
   // else: insert or update item
-  private function populateIfCompare( array $lib_obj, array &$storage, callable $comparator )
+  private function populateIfCompare( array $lib_obj, array &$storage, callable $comparator ): void
   {
     $item = &$storage[$lib_obj['name']];
 
@@ -196,7 +196,7 @@ class JSONCache
     $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
     foreach ($jsonIndex as $id => $libraries) {
       if( $id === 'libraries' ) {
-        foreach( $libraries as $pos => $library ) {
+        foreach( $libraries as $library ) {
           $this->populateIfCompare( $library, $items, "Composer\Semver\Comparator::lessThanOrEqualTo" );
         }
       }

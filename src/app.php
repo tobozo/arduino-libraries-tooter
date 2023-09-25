@@ -32,7 +32,8 @@ class App
     $this->mastodon = new MastodonStatus([
       'token'        => MASTODON_API_KEY,
       'instance_url' => MASTODON_API_URL,
-      'account_id'   => MASTODON_ACCOUNT_ID
+      'account_id'   => MASTODON_ACCOUNT_ID,
+      'logger'       => $this->logger
     ]);
     $this->cache    = new JSONCache([
       'cache_dir' => INDEX_CACHE_DIR,
@@ -44,7 +45,7 @@ class App
   }
 
 
-  public function run()
+  public function run(): void
   {
     // 1) load queued libraries from local file
     $queuedLibraries = $this->queue->get();
@@ -115,6 +116,3 @@ class App
   }
 }
 
-
-$app = new App;
-$app->run();

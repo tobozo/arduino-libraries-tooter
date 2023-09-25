@@ -6,6 +6,7 @@ namespace SocialPlatform;
 
 use \MastodonAPI;
 use \Composer\Semver\Comparator;
+use \LogManager\FileLogger;
 
 
 class MastodonStatus extends MastodonAPI
@@ -15,16 +16,17 @@ class MastodonStatus extends MastodonAPI
   private string $default_arch = 'arduino';
   private string $account_id;
 
-  public object $logger;
+  public FileLogger $logger;
 
 
   public function __construct( array $conf )
   {
-    foreach( ['token', 'instance_url', 'account_id'] as $name ) {
+    foreach( ['token', 'instance_url', 'account_id', 'logger'] as $name ) {
       if( !isset( $conf[$name] ) )
       throw new \Exception("Missing conf[$name]");
     }
 
+    $this->logger = $conf['logger'];
     parent::__construct($conf['token'], $conf['instance_url']);
     $this->account_id = $conf['account_id'];
   }
@@ -69,7 +71,7 @@ class MastodonStatus extends MastodonAPI
     if( isset($item['architectures']) && !empty($item['architectures']) ) {
       if( count( $item['architectures'] ) > 1 ) {
         $architectures = implode("/", $item['architectures'] );
-        foreach( $item['architectures'] as $pos => $arch ) {
+        foreach( $item['architectures'] as $arch ) {
           $item['tags'][] = '#'.$arch;
         }
       } else {
@@ -131,7 +133,7 @@ class MastodonStatus extends MastodonAPI
 
     $items = [];
 
-    foreach( $ret as $id=>$post ) {
+    foreach( $ret as $post ) {
       if(!isset($post['content']) || empty($post['content']) ) {
         $this->logger->logf("[WARNING] Post #%s has no content", $post['id'] );
         continue;
