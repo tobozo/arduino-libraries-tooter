@@ -22,21 +22,18 @@ class JSONCache
   private string $cache_file;     // latest version
   private string $cache_file_old; // backup version
   private string $cache_file_tmp; // temp version
-  private string $wget_bin;
-  private string $gzip_bin;
   private string $gz_url;
   private string $gz_file;
   private FileLogger $logger;
 
   public function __construct( array $conf )
   {
-    foreach( ['cache_dir', 'gzip_bin', 'logger'] as $name ) {
+    foreach( ['cache_dir', 'logger'] as $name ) {
       if( !isset( $conf[$name] ) )
       throw new \Exception("Missing conf[$name]");
     }
 
     $this->logger                = $conf['logger'];
-    $this->gzip_bin              = $conf['gzip_bin'];
     $this->cache_dir             = $conf['cache_dir'];
     $this->cache_file            = $this->cache_dir."/".$this->index_file_name;
     $this->cache_file_tmp        = $this->cache_dir."/".$this->index_file_name.".tmp";
@@ -79,9 +76,38 @@ class JSONCache
   }
 
 
+
+  private function gzip_uncompress( string $gz_file, string $out_file ): bool
+  {
+    if( !file_exists( $gz_file ) ) {
+      return false;
+    }
+
+    $gz  = gzopen($gz_file, "r");
+    $out = fopen($out_file, "w");
+
+    if( !$gz || !$out ) {
+      return false;
+    }
+
+    while (!gzeof($gz)) {
+      $buff = gzgets ($gz, 4096) ;
+      fputs($out, $buff) ;
+    }
+
+    gzclose($gz) ;
+    fclose($out) ;
+
+    return true;
+  }
+
+
+
+
+
   // http-head remote file, and download if status !=304
   // return bool
-  private function curl_http_wget()
+  private function curl_http_wget(): bool
   {
     if( file_exists( $this->gz_file ) ) {
       $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
@@ -89,8 +115,8 @@ class JSONCache
       //   $this->logger->logf("[DEBUG] Status:%s, last-modified:%s, expires:%s\n", $resp['status'], $resp['headers']['last-modified'][0], $resp['headers']['expires'][0] );
       if( $resp['status'] == 304 ) {
         $this->logger->log("[INFO] Remote file is unchanged (status 304), extracting from local");
-        $ret = exec($this->gzip_bin." -k -d -f ".$this->gz_file);
-        if( $ret && file_exists($this->cache_file) )
+        $ret = $this->gzip_uncompress( $this->gz_file, $this->cache_file );
+        if( $ret && file_exists($this->cache_file) && filesize($this->cache_file)>0 )
           return true;
       }
     }

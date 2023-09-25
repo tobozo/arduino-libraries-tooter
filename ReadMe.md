@@ -37,5 +37,6 @@ Inspiration:
   - https://github.com/njh/arduino-libraries
   - https://www.arduinolibraries.info/
 
-
+Thanks:
+  - @tipiak75
 
