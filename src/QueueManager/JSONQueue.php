@@ -8,10 +8,9 @@ namespace QueueManager;
 class JSONQueue
 {
 
-  private $queue_file_name = "queue.json";
-  private $queue_file;
+  private string $queue_file;
 
-  public function __construct($queue_dir)
+  public function __construct( string $queue_dir, string $queue_file_name="queue.json")
   {
     if(! is_dir( $queue_dir ) ) {
       mkdir( $queue_dir );
@@ -19,11 +18,12 @@ class JSONQueue
     if( !is_dir( $queue_dir ) ) {
       throw new \Exception("Queue dir not created: $queue_dir");
     }
-    $this->queue_file = $queue_dir.'/'.$this->queue_file_name;
+    $this->queue_file = $queue_dir.'/'.$queue_file_name;
   }
 
 
-  public function getQueue()
+  // return JSON array from queue file
+  public function get()
   {
     // TODO: handle invalid contents (non JSON) in QUEUE_FILE
     return file_exists($this->queue_file)
@@ -33,19 +33,21 @@ class JSONQueue
   }
 
 
-  public function gcQueue()
+  // delete queue file
+  public function gc()
   {
     if( file_exists($this->queue_file) )
       unlink($this->queue_file);
   }
 
 
-  public function saveQueue( $queue )
+  // save array in queue file
+  public function save( array $queue )
   {
     if( !empty( $queue ) )
       file_put_contents( $this->queue_file, json_encode($queue) );
     else
-      $this->gcQueue();
+      $this->gc();
   }
 
 

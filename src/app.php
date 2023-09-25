@@ -10,21 +10,20 @@ require_once('QueueManager/JSONQueue.php');
 require_once('CacheManager/JSONCache.php');
 require_once('SocialPlatform/Mastodon/MastodonStatus.php');
 
+use LogManager\FileLogger;
 use CacheManager\JSONCache;
 use QueueManager\JSONQueue;
 use SocialPlatform\MastodonStatus;
-use LogManager\FileLogger;
 use Composer\Semver\Comparator;
-
 
 
 class Manager
 {
-  private $cache;
-  private $queue;
-  private $mastodon;
-  private $logger;
-  private $max_posts_per_run = 5;
+  private object $cache;
+  private object $queue;
+  private object $mastodon;
+  private object $logger;
+  private int $max_posts_per_run = 5;
 
   public function __construct()
   {
@@ -44,13 +43,13 @@ class Manager
   public function run()
   {
     // 1) load queued libraries from local file
-    $queuedLibraries = $this->queue->getQueue();
+    $queuedLibraries = $this->queue->get();
 
     // 2) get mastodon last posted items
     $lastItems = $this->mastodon->getLastItems();
 
     if( !$lastItems || count($lastItems)==0 ) {
-      $this->logger->log("[ERROR] No post history to process, create one manually and pin it!");
+      $this->logger->log("[ERROR] No post history to process, skipping this run");
       // goto _processQueue;
       return;
     }
@@ -72,7 +71,7 @@ class Manager
         foreach( $diff['>'] as $name => $props ) {
           $queuedLibraries[$name] = $props;
         }
-        $this->queue->saveQueue( $queuedLibraries );
+        $this->queue->save( $queuedLibraries );
       }
     }
 
@@ -91,20 +90,20 @@ class Manager
         // duplicate post, skip !
         $this->logger->logf("[WARNING] Duplicate post for %s (%s), skipping", $item['name'], $item['version'] );
         unset($queuedLibraries[$name]);
-        $this->queue->saveQueue( $queuedLibraries );
+        $this->queue->save( $queuedLibraries );
         continue;
       }
       // $item = $this->mastodon->processItem( $item );
       // echo sprintf("[DEBUG][SHOULD NOTIFY] %s => %s\n%s\n", $name, print_r( $item, true ), $this->mastodon->format( $item ) );
       // unset($queuedLibraries[$name]);
       // // save updated queue file
-      // $this->queue->saveQueue( $queuedLibraries );
+      // $this->queue->save( $queuedLibraries );
       if( $this->mastodon->publish( $item ) ) {
         unset($queuedLibraries[$name]);
         // save updated queue file
-        $this->queue->saveQueue( $queuedLibraries );
+        $this->queue->save( $queuedLibraries );
         // avoid spam
-        if( $max_posts_per_run--<=0 ) return;
+        if( $this->max_posts_per_run--<=0 ) return;
       }
       sleep(1); // throttle
     }

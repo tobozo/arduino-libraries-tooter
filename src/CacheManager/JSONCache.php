@@ -5,48 +5,45 @@ declare(strict_types=1);
 
 namespace CacheManager;
 
+use LogManager\FileLogger;
+use Composer\Semver\Comparator;
 use JsonMachine\Items;
 use JsonMachine\JsonDecoder\DecodingError;
 use JsonMachine\JsonDecoder\ErrorWrappingDecoder;
 use JsonMachine\JsonDecoder\ExtJsonDecoder;
-use QueueManager\JSONQueue;
-use LogManager\FileLogger;
-use Composer\Semver\Comparator;
 
 
 class JSONCache
 {
-  private $index_file_name    = "library_index.json";
-  private $index_file_name_gz = "library_index.json.gz";
-  private $unique_file_name   = "unique_libraries.json";
+  private string $index_base_url   = "https://downloads.arduino.cc/libraries"; // no trailing slash
+  private string $index_file_name  = "library_index.json"; // json document name, no gz extension
 
-  private $cache_dir;
-  private $cache_file;
-  private $cache_file_old;
-  private $cache_file_tmp;
-  private $wget_bin;
-  private $gzip_bin;
-  private $gz_url;
-  private $gz_file;
-  private $logger;
+  private string $cache_dir;
+  private string $cache_file;     // latest version
+  private string $cache_file_old; // backup version
+  private string $cache_file_tmp; // temp version
+  private string $wget_bin;
+  private string $gzip_bin;
+  private string $gz_url;
+  private string $gz_file;
+  private object $logger;
 
-  public function __construct($conf)
+  public function __construct( array $conf )
   {
-    if(  !isset($conf['cache_dir'])
-      || !isset($conf['wget_bin'])
-      || !isset($conf['gzip_bin'])
-      || !isset($conf['logger'])
-    ) { throw new \Exception('Bad configuration'); }
+    foreach( ['cache_dir', 'wget_bin', 'gzip_bin', 'logger'] as $name ) {
+      if( !isset( $conf[$name] ) )
+      throw new \Exception("Missing conf[$name]");
+    }
 
+    $this->logger                = $conf['logger'];
     $this->wget_bin              = $conf['wget_bin'];
     $this->gzip_bin              = $conf['gzip_bin'];
-    $this->logger                = $conf['logger'];
     $this->cache_dir             = $conf['cache_dir'];
-    $this->gz_url                = "https://downloads.arduino.cc/libraries/".$this->index_file_name_gz;
-    $this->gz_file               = $this->cache_dir."/".$this->index_file_name_gz;
     $this->cache_file            = $this->cache_dir."/".$this->index_file_name;
     $this->cache_file_tmp        = $this->cache_dir."/".$this->index_file_name.".tmp";
     $this->cache_file_old        = $this->cache_dir."/".$this->index_file_name.".old";
+    $this->gz_file               = $this->cache_dir."/".$this->index_file_name.".gz";
+    $this->gz_url                = $this->index_base_url."/".$this->index_file_name.".gz";
 
     if(! is_dir( $this->cache_dir ) ) {
       mkdir( $this->cache_dir );
@@ -59,6 +56,7 @@ class JSONCache
 
 
   // load/download latest library index file
+  // return bool
   public function load()
   {
     if(! file_exists( $this->cache_file ) || filesize($this->cache_file)==0 ) { // first run, no backup needed
@@ -82,13 +80,14 @@ class JSONCache
   }
 
 
-  // download remote file
+  // http-head remote file, and download if status !=304
+  // return bool
   private function wget()
   {
     if( file_exists( $this->gz_file ) ) {
       $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
-      if( isset($resp['headers']['last-modified']) && isset($resp['headers']['expires']) )
-        $this->logger->logf("[DEBUG] Status:%s, last-modified:%s, expires:%s\n", $resp['status'], $resp['headers']['last-modified'][0], $resp['headers']['expires'][0] );
+      // if( isset($resp['headers']['last-modified']) && isset($resp['headers']['expires']) )
+      //   $this->logger->logf("[DEBUG] Status:%s, last-modified:%s, expires:%s\n", $resp['status'], $resp['headers']['last-modified'][0], $resp['headers']['expires'][0] );
       if( $resp['status'] == 304 ) {
         $this->logger->log("[INFO] Remote file is unchanged (status 304), extracting from local");
         $ret = exec($this->gzip_bin." -k -d -f ".$this->gz_file);
@@ -101,12 +100,13 @@ class JSONCache
     if( $ret===false || !file_exists($this->cache_file)) {
       return false;
     }
-    return $ret;
+    return true;
   }
 
 
-
-  private function curl_http_head( $url, $extra_header )
+  // send http HEAD query, return status/headers
+  // return array of status/data/headers
+  private function curl_http_head( string $url, array $extra_header=[] )
   {
     $ch = curl_init();
     $headers = [];
@@ -138,8 +138,9 @@ class JSONCache
   }
 
 
-
-  public function array_diff_by_key( $arr1, $arr2, $key='version' )
+  // compare arr1 and arr2 items by key
+  // return bidirectional diff, git style
+  public function array_diff_by_key( array $arr1, array $arr2, string $key='version' )
   {
     $ret = [
       '>' => [], // added
@@ -159,8 +160,10 @@ class JSONCache
   }
 
 
-
-  private function pruneLibrary( $lib_obj, &$storage, $comparator )
+  // find $lib_obj item in $storage collection
+  // if item exists and comparator matches: keep existing item
+  // else: insert or update item
+  private function populateIfCompare( array $lib_obj, array &$storage, callable $comparator )
   {
     $item = &$storage[$lib_obj['name']];
 
@@ -187,21 +190,23 @@ class JSONCache
 
 
   // store libraries by names, keep highest version
-  private function getPrunedIndex( $index_file_path, $uniqueLibraries=[] )
+  // return populated array
+  private function getPrunedIndex( string $index_file_path, array $items=[] )
   {
     $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
     foreach ($jsonIndex as $id => $libraries) {
       if( $id === 'libraries' ) {
         foreach( $libraries as $pos => $library ) {
-          $this->pruneLibrary( $library, $uniqueLibraries, "Composer\Semver\Comparator::lessThanOrEqualTo" );
+          $this->populateIfCompare( $library, $items, "Composer\Semver\Comparator::lessThanOrEqualTo" );
         }
       }
     }
-    return $uniqueLibraries;
+    return $items;
   }
 
 
-
+  // get unique libraries with their highest versions for current and old indexes
+  // return pruned indexes for current and old indexes
   public function getPrunedIndexes()
   {
     $ret = [

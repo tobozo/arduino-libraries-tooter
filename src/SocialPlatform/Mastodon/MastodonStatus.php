@@ -11,24 +11,25 @@ use \Composer\Semver\Comparator;
 class MastodonStatus extends MastodonAPI
 {
 
-  private $default_tags = ['#Arduino', '#ArduinoLibs'];
-  private $default_arch = 'arduino';
-  private $account_id;
+  private array $default_tags = ['#Arduino', '#ArduinoLibs'];
+  private string $default_arch = 'arduino';
+  private string $account_id;
 
-  public $logger;
+  public object $logger;
 
 
-  public function __construct($token, $instance_url, $account_id)
+  public function __construct( string $token, string $instance_url, string $account_id )
   {
     parent::__construct($token, $instance_url);
     $this->account_id = $account_id;
   }
 
-
-  public function format( $item )
+  // create a formatted message from item properties
+  // return formatted message
+  public function format( array $item )
   {
     // populate message
-    return sprintf( "%s (%s) for %s by %s\n➡️ %s\n%s\n%s ",
+    return sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
       $item['name'],
       $item['version'],
       $item['architectures'],
@@ -40,21 +41,26 @@ class MastodonStatus extends MastodonAPI
   }
 
 
-  public function publish( $item )
+  // process and post $item to mastodon network
+  // return bool
+  public function publish( array $item )
   {
     $item = $this->processItem( $item );
     return $this->post( $item );
   }
 
 
-  public function processItem( $item )
+  // prepare message properties
+  // return processed item
+  public function processItem( array $item )
   {
-    // prepare message properties
-    $item['author']     = trim( preg_replace("/<(.*)>/", "", $item['author'] ) ); // remove email address from author name
-    $item['repository'] = trim( preg_replace("/\.git$/", "", $item['repository'] ) ); // remove trailing ".git" in repository URL
+    // cleanup author field from email artefacts (enclosed by <>)
+    $item['author'] = trim( preg_replace("/<[^>]+>/", "", $item['author'] ) );
+    // remove trailing ".git" in repository URL
+    $item['repository'] = trim( preg_replace("/\.git$/", "", $item['repository'] ) );
+    // populate architectures (text and tags)
     $architectures = $this->default_arch; // (default)
     $item['tags']  = $this->default_tags; // ['#Arduino', '#ArduinoLibs']; // (defaults)
-    // populate architectures (text and tags)
     if( isset($item['architectures']) && !empty($item['architectures']) ) {
       if( count( $item['architectures'] ) > 1 ) {
         $architectures = implode("/", $item['architectures'] );
@@ -73,7 +79,9 @@ class MastodonStatus extends MastodonAPI
   }
 
 
-  private function post( $item )
+  // format and post $item as a new status to mastodon network
+  // return bool
+  private function post( array $item )
   {
     // ActivityPub status properties
     $status_data = [
@@ -103,7 +111,10 @@ class MastodonStatus extends MastodonAPI
   }
 
 
-  public function getLastItems( $max_count=30 )
+  // retrieve last $max_count statuses from mastodon account
+  // extract library name+version from posts
+  // return array of library pairs [$name] => [$version]
+  public function getLastItems( int $max_count=30 )
   {
     $args = [ 'limit' => $max_count ];
     $ret = $this->callAPI( "/api/v1/accounts/".$this->account_id."/statuses", 'GET', $args);
@@ -113,7 +124,7 @@ class MastodonStatus extends MastodonAPI
       return false;
     }
 
-    $postedLibraries = [];
+    $items = [];
 
     foreach( $ret as $id=>$post ) {
       if(!isset($post['content']) || empty($post['content']) ) {
@@ -125,14 +136,15 @@ class MastodonStatus extends MastodonAPI
         if( isset($matches) && count($matches)==3 && !empty($matches[0]) && !empty($matches[1]) && !empty($matches[2]) ) {
           $name    = trim($matches[1]);
           $version = trim($matches[2]);
-          if( !isset( $postedLibraries[$name] ) || \Composer\Semver\Comparator::greaterThan( $version, $postedLibraries[$name] ) ) {
-            $postedLibraries[$name] = $version; // store in array[name]=version
+          // check if the library/version from this post is unset or higher version
+          if( !isset( $items[$name] ) || \Composer\Semver\Comparator::greaterThan( $version, $items[$name] ) ) {
+            $items[$name] = $version; // store in array
           }
         }
       }
     }
 
-    return $postedLibraries;
+    return $items;
   }
 
 
