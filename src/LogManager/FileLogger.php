@@ -22,6 +22,7 @@ class FileLogger
     $this->log_file = $log_file_dir.'/'.$log_file_name;
     // guess the timezone from a real system source, don't trust the php.ini
     $this->timezone = $_SERVER['TZ'] ?? trim(file_get_contents('/etc/timezone') ?: file_get_contents('/etc/localtime'));
+    date_default_timezone_set($this->timezone);
   }
 
 

@@ -15,10 +15,9 @@ use JsonMachine\JsonDecoder\ExtJsonDecoder;
 
 class JSONCache
 {
-  private string $index_base_url   = "https://downloads.arduino.cc/libraries"; // no trailing slash
-  private string $index_file_name  = "library_index.json"; // json document name, no gz extension
+  private const index_base_url   = "https://downloads.arduino.cc/libraries"; // no trailing slash
+  private const index_file_name  = "library_index.json"; // json document name, no gz extension
 
-  private string $cache_dir;
   private string $cache_file;     // latest version
   private string $cache_file_old; // backup version
   private string $cache_file_tmp; // temp version
@@ -34,19 +33,18 @@ class JSONCache
     }
 
     $this->logger                = $conf['logger'];
-    $this->cache_dir             = $conf['cache_dir'];
-    $this->cache_file            = $this->cache_dir."/".$this->index_file_name;
-    $this->cache_file_tmp        = $this->cache_dir."/".$this->index_file_name.".tmp";
-    $this->cache_file_old        = $this->cache_dir."/".$this->index_file_name.".old";
-    $this->gz_file               = $this->cache_dir."/".$this->index_file_name.".gz";
-    $this->gz_url                = $this->index_base_url."/".$this->index_file_name.".gz";
+    $this->cache_file            = $conf['cache_dir']."/".self::index_file_name;
+    $this->cache_file_tmp        = $conf['cache_dir']."/".self::index_file_name.".tmp";
+    $this->cache_file_old        = $conf['cache_dir']."/".self::index_file_name.".old";
+    $this->gz_file               = $conf['cache_dir']."/".self::index_file_name.".gz";
+    $this->gz_url                = self::index_base_url."/".self::index_file_name.".gz";
 
-    if(! is_dir( $this->cache_dir ) ) {
-      mkdir( $this->cache_dir );
+    if(! is_dir( $conf['cache_dir'] ) ) {
+      mkdir( $conf['cache_dir'] );
     }
 
-    if(! is_dir( $this->cache_dir ) ) {
-      throw new \Exception( "[ERROR] Unable to create cache dir ".$this->cache_dir );
+    if(! is_dir( $conf['cache_dir'] ) ) {
+      throw new \Exception( "[ERROR] Unable to create cache dir ".$conf['cache_dir'] );
     }
   }
 
@@ -56,7 +54,7 @@ class JSONCache
   public function load(): bool
   {
     if(! file_exists( $this->cache_file ) || filesize($this->cache_file)==0 ) { // first run, no backup needed
-      if( $this->curl_http_wget() === false ) {
+      if( $this->gunzip_index($this->gz_url, $this->gz_file, $this->cache_file) === false ) {
         $this->logger->log( "[ERROR] Library Registry Index download failed");
         return false;
       }
@@ -65,7 +63,7 @@ class JSONCache
     } else { // subsequent runs, backup the old index file and download a new copy
       rename( $this->cache_file, $this->cache_file_tmp );
 
-      if( $this->curl_http_wget() === false ) {
+      if( $this->gunzip_index($this->gz_url, $this->gz_file, $this->cache_file) === false ) {
         $this->logger->log( "[WARNING] Library Registry Index download skipped" );
         rename( $this->cache_file_tmp, $this->cache_file ); // restore backup since download failed
         return false;
@@ -77,16 +75,26 @@ class JSONCache
 
 
 
-  private function gzip_uncompress( string $gz_file, string $out_file ): bool
+  // decompress $gz_file to $out_file
+  // return bool
+  private function gz_uncompress( string $gz_file, string $out_file ): bool
   {
     if( !file_exists( $gz_file ) ) {
+      $this->logger->log( "[ERROR] File $gz_file does not exist and can't be decompressed");
+      return false;
+    }
+
+    $out = fopen($out_file, "w");
+
+    if( !$out ) {
+      $this->logger->log( "[ERROR] Output file $out_file is not writable");
       return false;
     }
 
     $gz  = gzopen($gz_file, "r");
-    $out = fopen($out_file, "w");
 
-    if( !$gz || !$out ) {
+    if( !$gz ) {
+      $this->logger->log( "[ERROR] File $gz_file is not a valid gzip file");
       return false;
     }
 
@@ -103,53 +111,63 @@ class JSONCache
 
 
 
-
-
-  // http-head remote file, and download if status !=304
-  // return bool
-  private function curl_http_wget(): bool
+  // gz_uncompress wrapper with extra checks
+  private function gunzip( string $gz_file, string $out_file ): bool
   {
-    if( file_exists( $this->gz_file ) ) {
-      $resp = $this->curl_http_head( $this->gz_url, ["If-Modified-Since: ".gmdate('D, d M Y H:i:s T', filemtime( $this->gz_file ))] );
-      // if( isset($resp['headers']['last-modified']) && isset($resp['headers']['expires']) )
-      //   $this->logger->logf("[DEBUG] Status:%s, last-modified:%s, expires:%s\n", $resp['status'], $resp['headers']['last-modified'][0], $resp['headers']['expires'][0] );
+    $ret = $this->gz_uncompress( $gz_file, $out_file );
+    if( $ret && file_exists($out_file) && filesize($out_file)>0 )
+      return true;
+    return false;
+  }
+
+
+
+  // decompress local (if http-head[status]=304) or remote file
+  // return bool
+  private function gunzip_index( string $gz_url, string $gz_file, string $cache_file ): bool
+  {
+    if( file_exists( $gz_file ) ) { // check if remote changed using file modification time
+      $mod = gmdate('D, d M Y H:i:s T', filemtime( $gz_file ));
+      $resp = $this->curl_http_head( $gz_url, ["If-Modified-Since: ".$mod] );
       if( $resp['status'] == 304 ) {
-        $this->logger->log("[INFO] Remote file is unchanged (status 304), extracting from local");
-        $ret = $this->gzip_uncompress( $this->gz_file, $this->cache_file );
-        if( $ret && file_exists($this->cache_file) && filesize($this->cache_file)>0 )
+        $this->logger->logf("[INFO] Remote file is unchanged (status 304, mod: %s, last_mod: %s, expires:%s), extracting from local",
+          $mod,
+          $resp['headers']['last-modified'][0],
+          $resp['headers']['expires'][0]
+        );
+        if( $this->gunzip( $gz_file, $cache_file ) )
           return true;
       }
     }
 
-    $out_file = fopen($this->gz_file, "w");// or die("cannot open" . $this->gz_file);
+    $out_file = fopen($gz_file, "w");
 
     if( !$out_file ) {
-      $this->logger->log("[ERROR] Local cache is not writeable");
+      $this->logger->log("[ERROR] $gz_file is not writable");
       return false;
     }
 
     $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $this->gz_url);
+    curl_setopt($ch, CURLOPT_URL, $gz_url);
     curl_setopt($ch, CURLOPT_FILE, $out_file);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30); // timeout is 30 seconds, to download the large files you may need to increase the timeout limit.
 
     $ret = false;
 
-    // Running curl to download file
     curl_exec($ch);
     if (curl_errno($ch)) {
-      $this->logger->log("the cURL error is : " . curl_error($ch));
+      $this->logger->log("[ERROR] cURL error occured while fetching $gz_url : " . curl_error($ch));
     } else {
       $status = curl_getinfo($ch);
       if( $status["http_code"] == 200 ) $ret = true;
-      else $this->logger->log("The error code is : " . $status["http_code"]);
+      else $this->logger->log("[ERROR] cURL status code: " . $status["http_code"]);
     }
 
     // close and finalize the operations.
     curl_close($ch);
     fclose($out_file);
 
-    return $ret && file_exists($this->cache_file) && filesize($this->cache_file)>0;
+    return $ret && $this->gunzip( $gz_file, $cache_file );
   }
 
 
@@ -215,7 +233,8 @@ class JSONCache
   // else: insert or update item
   private function populateIfCompare( array $lib_obj, array &$storage, callable $comparator ): void
   {
-    $item = &$storage[$lib_obj['name']];
+    $name = $lib_obj['name'];
+    $item = &$storage[$name];
 
     if( isset( $item ) ) {
       if( $comparator($lib_obj['version'], $item['version'] ) ) {
@@ -223,7 +242,7 @@ class JSONCache
       }
     }
 
-    $item['name']          = $lib_obj['name'];
+    $item['name']          = $name;
     $item['version']       = $lib_obj['version'];
     $item['author']        = $lib_obj['author'];
     $item['repository']    = $lib_obj['repository'];

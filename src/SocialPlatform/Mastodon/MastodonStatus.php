@@ -14,22 +14,24 @@ class MastodonStatus extends MastodonAPI
 
   private array $default_tags = ['#Arduino', '#ArduinoLibs'];
   private string $default_arch = 'arduino';
-  private string $account_id;
+  private array $account;
 
   public FileLogger $logger;
 
 
   public function __construct( array $conf )
   {
-    foreach( ['token', 'instance_url', 'account_id', 'logger'] as $name ) {
+    foreach( ['token', 'instance_url', 'logger'] as $name ) {
       if( !isset( $conf[$name] ) )
       throw new \Exception("Missing conf[$name]");
     }
-
-    $this->logger = $conf['logger'];
     parent::__construct($conf['token'], $conf['instance_url']);
-    $this->account_id = $conf['account_id'];
+    $this->logger  = $conf['logger'];
+    $this->account = $this->getAccount();
+    // $this->account['statuses_count'];
   }
+
+
 
   // create a formatted message from item properties
   // return formatted message
@@ -62,9 +64,9 @@ class MastodonStatus extends MastodonAPI
   public function processItem( array $item ): array
   {
     // cleanup author field from email artefacts (enclosed by <>)
-    $item['author'] = trim( preg_replace("/<[^>]+>/", "", $item['author'] ) );
+    $item['author'] = trim( preg_replace("/<[^>]+>/", "", (string)$item['author'] ) );
     // remove trailing ".git" in repository URL
-    $item['repository'] = trim( preg_replace("/\.git$/", "", $item['repository'] ) );
+    $item['repository'] = trim( preg_replace("/\.git$/", "", (string)$item['repository'] ) );
     // populate architectures (text and tags)
     $architectures = $this->default_arch; // (default)
     $item['tags']  = $this->default_tags; // ['#Arduino', '#ArduinoLibs']; // (defaults)
@@ -124,7 +126,7 @@ class MastodonStatus extends MastodonAPI
   public function getLastItems( int $max_count=30 ): array
   {
     $args = [ 'limit' => $max_count ];
-    $ret = $this->callAPI( "/api/v1/accounts/".$this->account_id."/statuses", 'GET', $args);
+    $ret = $this->callAPI( "/api/v1/accounts/".$this->account['id']."/statuses", 'GET', $args);
 
     if( !$ret || ! is_array($ret ) || empty($ret) ) {
       $this->logger->logf("[ERROR] Could not fetch last posts (resp=%s)", $ret);
@@ -153,6 +155,32 @@ class MastodonStatus extends MastodonAPI
 
     return $items;
   }
+
+
+  // retrieve account information (account id, statuses_count, etc)
+  // the operation also validates the token
+  // return user info
+  private function getAccount(): array
+  {
+    $resp = $this->callAPI("/api/v1/accounts/verify_credentials", "GET", []);
+
+    // catch curl error or API error
+    if( isset( $resp['curl_error'] ) || isset( $resp['error'] ) ) {
+      $err = $resp['curl_error']??$resp['error'];
+      throw new \Exception( "API Error: ".$err );
+    }
+
+    if( empty( $resp ) ) {
+      throw new \Exception("Bad token permissions");
+    }
+
+    if( !isset( $resp['id'] ) ) {
+      throw new \Exception("Bad API response");
+    }
+
+    return $resp;
+  }
+
 
 
 }

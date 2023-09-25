@@ -32,7 +32,6 @@ class App
     $this->mastodon = new MastodonStatus([
       'token'        => MASTODON_API_KEY,
       'instance_url' => MASTODON_API_URL,
-      'account_id'   => MASTODON_ACCOUNT_ID,
       'logger'       => $this->logger
     ]);
     $this->cache    = new JSONCache([
