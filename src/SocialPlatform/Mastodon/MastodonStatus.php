@@ -4,9 +4,75 @@ declare(strict_types=1);
 
 namespace SocialPlatform;
 
-use \MastodonAPI;
+//use \MastodonAPI;
 use \Composer\Semver\Comparator;
 use \LogManager\FileLogger;
+
+
+
+class MastodonAPI
+{
+  private $token;
+  private $instance_url;
+  public $response_headers = [];
+  public $reply;
+
+  public function __construct($token, $instance_url)
+  {
+    $this->token = $token;
+    $this->instance_url = $instance_url;
+  }
+
+  public function postStatus($status)
+  {
+    return $this->callAPI('/api/v1/statuses', 'POST', $status);
+  }
+
+  public function uploadMedia($media)
+  {
+    return $this->callAPI('/api/v1/media', 'POST', $media);
+  }
+
+  public function callAPI($endpoint, $method, $data)
+  {
+    $headers = [
+      'Authorization: Bearer '.$this->token,
+      'Content-Type: multipart/form-data',
+      'Accept: application/json'
+    ];
+
+    $response_headers = [];
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $this->instance_url.$endpoint);
+    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'PHP 8/Arduino-Libraries-Announcer 1.0');
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function(\CurlHandle $ch, string $header) use (&$response_headers) {
+      $len = strlen($header);
+      $header = explode(':', $header, 2);
+      if (count($header) < 2) // ignore invalid headers
+          return $len;
+      $response_headers[strtolower(trim($header[0]))] = trim($header[1]);
+      return $len;
+    });
+    $this->reply = curl_exec($ch);
+    $this->response_headers = $response_headers;
+
+    if (!$this->reply) {
+      return json_encode(['ok'=>false, 'curl_error_code' => curl_errno($ch), 'curl_error' => curl_error($ch)]);
+    }
+    curl_close($ch);
+
+    //print_r($reply);
+
+    return json_decode($this->reply, true);
+  }
+}
+
+
 
 
 class MastodonStatus extends MastodonAPI
@@ -28,6 +94,7 @@ class MastodonStatus extends MastodonAPI
     parent::__construct($conf['token'], $conf['instance_url']);
     $this->logger  = $conf['logger'];
     $this->account = $this->getAccount();
+    // echo "Account id: ".$this->account['id'].PHP_EOL;
     // $this->account['statuses_count'];
   }
 
@@ -113,9 +180,10 @@ class MastodonStatus extends MastodonAPI
     // got an {"error":"blah"} message in Mastodon's JSON Response
     if( isset( $resp['error'] ) ) {
       $this->logger->logf("[ERROR] (application error) for %s (%s)\nJSON Error: %s", $item['name'], $item['version'], $resp ['error'] );
+      return false;
     }
     // Success
-    $this->logger->logf("[SUCCESS] Published %s (%s) / %s as %s\n", $item['name'], $item['version'], $item['author'], isset( $resp['id'] ) ? $resp['id'] : 'no-ID' );
+    $this->logger->logf("[SUCCESS] Published %s (%s) by %s\n", $item['name'], $item['version'], $item['author'] );
     return true;
   }
 
@@ -125,11 +193,12 @@ class MastodonStatus extends MastodonAPI
   // return array of library pairs [$name] => [$version]
   public function getLastItems( int $max_count=30 ): array
   {
-    $args = [ 'limit' => $max_count ];
-    $ret = $this->callAPI( "/api/v1/accounts/".$this->account['id']."/statuses", 'GET', $args);
+    $args = [ /*'limit' => $max_count*/ ];
+    $apicall = "/api/v1/accounts/".$this->account['id']."/statuses";
+    $ret = $this->callAPI( $apicall, 'GET', $args);
 
     if( !$ret || ! is_array($ret ) || empty($ret) ) {
-      $this->logger->logf("[ERROR] Could not fetch last posts (resp=%s)", $ret);
+      $this->logger->logf("[ERROR] Could not fetch last posts (resp=%s, apicall=%s, resp_headers=%s, reply=%s)", $ret, $apicall, print_r( $this->response_headers, true ), print_r($this->reply, true) );
       return [];
     }
 
@@ -137,6 +206,7 @@ class MastodonStatus extends MastodonAPI
 
     foreach( $ret as $post ) {
       if(!isset($post['content']) || empty($post['content']) ) {
+        print_r($post);exit;
         $this->logger->logf("[WARNING] Post #%s has no content", $post['id'] );
         continue;
       }
@@ -163,19 +233,21 @@ class MastodonStatus extends MastodonAPI
   private function getAccount(): array
   {
     $resp = $this->callAPI("/api/v1/accounts/verify_credentials", "GET", []);
-
     // catch curl error or API error
     if( isset( $resp['curl_error'] ) || isset( $resp['error'] ) ) {
       $err = $resp['curl_error']??$resp['error'];
-      throw new \Exception( "API Error: ".$err );
+      $this->logger->log( "[ERROR] API Error: ".$err );
+      exit;
     }
 
     if( empty( $resp ) ) {
-      throw new \Exception("Bad token permissions");
+      $this->logger->log( "[ERROR] Bad token permissions (empty response)");
+      exit;
     }
 
     if( !isset( $resp['id'] ) ) {
-      throw new \Exception("Bad API response");
+      $this->logger->log( "[ERROR] Bad API response");
+      exit;
     }
 
     return $resp;

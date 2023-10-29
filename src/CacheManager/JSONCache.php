@@ -130,11 +130,11 @@ class JSONCache
       $mod = gmdate('D, d M Y H:i:s T', filemtime( $gz_file ));
       $resp = $this->curl_http_head( $gz_url, ["If-Modified-Since: ".$mod] );
       if( $resp['status'] == 304 ) {
-        $this->logger->logf("[INFO] Remote file is unchanged (status 304, mod: %s, last_mod: %s, expires:%s), extracting from local",
-          $mod,
-          $resp['headers']['last-modified'][0],
-          $resp['headers']['expires'][0]
-        );
+        // $this->logger->logf("[INFO] Remote file is unchanged (status 304, mod: %s, last_mod: %s, expires:%s), extracting from local",
+        //   $mod,
+        //   $resp['headers']['last-modified'][0],
+        //   $resp['headers']['expires'][0]
+        // );
         if( $this->gunzip( $gz_file, $cache_file ) )
           return true;
       }
@@ -148,26 +148,41 @@ class JSONCache
     }
 
     $ch = curl_init();
+
     curl_setopt($ch, CURLOPT_URL, $gz_url);
     curl_setopt($ch, CURLOPT_FILE, $out_file);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'PHP 8/Arduino-Libraries-Announcer 1.0');
     curl_setopt($ch, CURLOPT_TIMEOUT, 30); // timeout is 30 seconds, to download the large files you may need to increase the timeout limit.
 
-    $ret = false;
-
     curl_exec($ch);
-    if (curl_errno($ch)) {
-      $this->logger->log("[ERROR] cURL error occured while fetching $gz_url : " . curl_error($ch));
-    } else {
-      $status = curl_getinfo($ch);
-      if( $status["http_code"] == 200 ) $ret = true;
-      else $this->logger->log("[ERROR] cURL status code: " . $status["http_code"]);
-    }
 
-    // close and finalize the operations.
+    $errno  = curl_errno($ch);
+    $errmsg = curl_error($ch);
+    $status = curl_getinfo($ch);
+
     curl_close($ch);
     fclose($out_file);
 
-    return $ret && $this->gunzip( $gz_file, $cache_file );
+    if ($errno) {
+      $this->logger->log("[ERROR] cURL error occured while fetching $gz_url : " . $errmsg);
+    } else {
+      if( $status["http_code"] == 200 ) {
+        return $this->gunzip( $gz_file, $cache_file ); // $gz_file download successful, proceed with unzipping
+      } else {
+        $this->logger->log("[ERROR] cURL status code: " . $status["http_code"]);
+      }
+    }
+
+    // $gz_file is probably corrupted, delete it
+    if( file_exists( $gz_file ) ) {
+      unlink( $gz_file );
+    }
+    // also delete the cache file
+    if( file_exists( $cache_file ) ) {
+      unlink( $cache_file );
+    }
+
+    return false;
   }
 
 
@@ -185,6 +200,7 @@ class JSONCache
     // This changes the request method to HEAD
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'HEAD');
     curl_setopt($ch, CURLOPT_NOBODY, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'PHP 8/Arduino-Libraries-Announcer 1.0');
     // this function is called by curl for each header received
     curl_setopt($ch, CURLOPT_HEADERFUNCTION, function(\CurlHandle $ch, string $header) use (&$headers) {
       $len = strlen($header);
@@ -262,7 +278,13 @@ class JSONCache
   // return populated array
   private function getPrunedIndex( string $index_file_path, array $items=[] ): array
   {
-    $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
+    try {
+      $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );
+    } catch ( Exception $e ) {
+      $this->logger->log( "[ERROR] While decoding JSON: ".$e->getMessage() );
+      exit;
+    }
+
     foreach ($jsonIndex as $id => $libraries) {
       if( $id === 'libraries' ) {
         foreach( $libraries as $library ) {

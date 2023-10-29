@@ -21,7 +21,6 @@
     "require": {
         "php": ">=8.0",
         "halaxa/json-machine": "^1.1",
-        "eleirbag89/mastodonbotphp": "^0.1.0",
         "vlucas/phpdotenv": "^5.5",
         "composer/semver": "^3.4"
     },
@@ -31,13 +30,6 @@
     "config": {
         "allow-plugins": {
             "cweagans/composer-patches": true
-        }
-    },
-    "extra": {
-        "patches": {
-            "eleirbag89/mastodonbotphp": [
-                "patches/eleirbag89-mastodonbotphp-mastodon-php.patch"
-            ]
         }
     }
 }

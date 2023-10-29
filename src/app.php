@@ -23,15 +23,15 @@ class App
   private JSONQueue $queue;
   private MastodonStatus $mastodon;
   private FileLogger $logger;
-  private int $max_posts_per_run = 5;
+  private int $max_posts_per_run = 2;
 
   public function __construct()
   {
     $this->logger   = new FileLogger( ENV_DIR );
     $this->queue    = new JSONQueue( INDEX_CACHE_DIR );
     $this->mastodon = new MastodonStatus([
-      'token'        => MASTODON_API_KEY,
-      'instance_url' => MASTODON_API_URL,
+      'token'        => MASTODON_API_APP_TOKEN,
+      'instance_url' => MASTODON_API_APP_URL,
       'logger'       => $this->logger
     ]);
     $this->cache    = new JSONCache([
@@ -44,29 +44,33 @@ class App
 
   public function run(): void
   {
-    // 1) load queued libraries from local file
+    // load queued libraries from local file
     $queuedLibraries = $this->queue->get();
 
-    // 2) get mastodon last posted items
+    // get mastodon last posted items
     $lastItems = $this->mastodon->getLastItems();
 
     if( !$lastItems || count($lastItems)==0 ) {
-      $this->logger->log("[ERROR] No post history to process, skipping this run");
-      // goto _processQueue;
+      $this->logger->log("[WARNING] No post history to process (first run?)");
+      $lastItems = [];
       return;
     }
 
-    // 3) fetch arduino registry index
+    if( count($queuedLibraries)>0 ) { // queue not empty, skip registry update
+      goto _processQueue;
+    }
+
+    // fetch arduino registry index
     if( !$this->cache->load() ) {
       // cache load failed, no need to compare indexes, only process queue
       goto _processQueue;
       return;
     }
 
-    // 4) compute diff between current and old indexes
+    // compute diff between current and old indexes
     $pruned = $this->cache->getPrunedIndexes();
 
-    // 5) if $pruned has new stuff, merge it in $queuedLibraries and save queue
+    // if $pruned has new stuff, merge it in $queuedLibraries and save queue
     if( count($pruned['current'])>0 && count($pruned['old'])>0 ) {
       $diff = $this->cache->array_diff_by_key($pruned['current'], $pruned['old'], 'version');
       if( count($diff['>'])>0 ) {
@@ -81,7 +85,7 @@ class App
     _processQueue:
 
     if( count( $queuedLibraries ) == 0 ) {
-      $this->logger->log("[INFO] Library Registry Index is unchanged");
+      //$this->logger->log("[INFO] Library Registry Index is unchanged");
       return;
     }
 
@@ -104,10 +108,8 @@ class App
         unset($queuedLibraries[$name]);
         // save updated queue file
         $this->queue->save( $queuedLibraries );
-        // avoid spam
-        if( $this->max_posts_per_run--<=0 ) return;
       }
-      sleep(1); // throttle
+      exit; // avoid spam
     }
 
   }
