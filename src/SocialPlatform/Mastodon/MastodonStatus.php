@@ -7,7 +7,12 @@ namespace SocialPlatform;
 //use \MastodonAPI;
 use \Composer\Semver\Comparator;
 use \LogManager\FileLogger;
+use \SocialPlatform\GithubInfoFetcher;
+use \QueueManager\JSONQueue;
 
+
+// TODO: remove email addresses from author and maintainer fields (some@address), <some@address>
+// TODO: pull project 'repo.topics' from github API to generate more hashtags
 
 
 class MastodonAPI
@@ -16,11 +21,14 @@ class MastodonAPI
   private $instance_url;
   public $response_headers = [];
   public $reply;
+  public $formatted_item;
+  public JSONQueue $queue;
 
   public function __construct($token, $instance_url)
   {
     $this->token = $token;
     $this->instance_url = $instance_url;
+    $this->queue = new JSONQueue( INDEX_CACHE_DIR, "queue.mastodon.json" );
   }
 
   public function postStatus($status)
@@ -66,8 +74,6 @@ class MastodonAPI
     }
     curl_close($ch);
 
-    //print_r($reply);
-
     return json_decode($this->reply, true);
   }
 }
@@ -79,6 +85,10 @@ class MastodonStatus extends MastodonAPI
 {
 
   private array $default_tags = ['#Arduino', '#ArduinoLibs'];
+  private int $max_tags = 7;
+  private int $max_characters = 500;
+  private array $server_config;
+
   private string $default_arch = 'arduino';
   private array $account;
 
@@ -96,8 +106,32 @@ class MastodonStatus extends MastodonAPI
     $this->account = $this->getAccount();
     // echo "Account id: ".$this->account['id'].PHP_EOL;
     // $this->account['statuses_count'];
+    $this->getInstanceConfig();
   }
 
+
+  // Retrieve instance configuration (no token required).
+  // Evaluate statuses max_characters/characters_reserved_per_url
+  private function getInstanceConfig()
+  {
+    $serverDomainParts = parse_url(MASTODON_API_APP_URL) or php_die("Invalid mastodon API URL");
+    isset( $serverDomainParts['host'] ) or php_die("Invalid mastodon API hostname");
+    $serverConfigFile = INDEX_CACHE_DIR.'/'.$serverDomainParts['host'].'.json';
+
+    if( !file_exists( $serverConfigFile ) ) {
+      // GET /api/v1/instance
+      $server_config = file_get_contents( MASTODON_API_APP_URL.'/api/v1/instance' ) or php_die("Unable to fetch instance configuration".PHP_EOL);
+      file_put_contents( $serverConfigFile, $server_config ) or php_die("Unable to save instance configuration".PHP_EOL);
+    } else {
+      // read /path/to/cachedir/server.name.json
+      $server_config = file_get_contents( $serverConfigFile ) or php_die("Unable to open instance configuration file".PHP_EOL);;
+    }
+
+    $this->server_config = json_decode( $server_config, true ) or php_die("Unable to decode json response from instance configuration".PHP_EOL);
+    isset( $this->server_config['configuration']['statuses']['max_characters'] ) or php_die("Unable get configuration.statuses.max_characters from instance configuration".PHP_EOL);
+
+    $this->max_characters = $this->server_config['configuration']['statuses']['max_characters'];
+  }
 
 
   // create a formatted message from item properties
@@ -105,7 +139,7 @@ class MastodonStatus extends MastodonAPI
   public function format( array $item ): string
   {
     // populate message
-    return sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
+    $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
       $item['name'],
       $item['version'],
       $item['architectures'],
@@ -114,7 +148,17 @@ class MastodonStatus extends MastodonAPI
       $item['sentence'],
       implode(" ", array_unique($item['tags']))
     );
+
+
+    // TODO: figure out server max Text character limit
+    // TODO: truncate properly to fit
+    if( strlen( $this->formatted_item ) > $this->max_characters ) {
+      $this->logger->logf("[WARNING] Message length (%d) exceeds server limit (%d)".PHP_EOL, strlen( $this->formatted_item ). $this->max_characters );
+    }
+
+    return $this->formatted_item;
   }
+
 
 
   // process and post $item to mastodon network
@@ -139,10 +183,14 @@ class MastodonStatus extends MastodonAPI
     $item['tags']  = $this->default_tags; // ['#Arduino', '#ArduinoLibs']; // (defaults)
     if( isset($item['architectures']) && !empty($item['architectures']) ) {
       if( count( $item['architectures'] ) > 1 ) {
-        $architectures = implode("/", $item['architectures'] );
-        foreach( $item['architectures'] as $arch ) {
-          $item['tags'][] = '#'.$arch;
+        foreach( $item['architectures'] as $idx => $arch ) {
+          if( $idx <= $this->max_tags ) {
+            $item['tags'][] = '#'.$arch;
+          } else {
+            unset( $item['architectures'][$idx] );
+          }
         }
+        $architectures = implode("/", $item['architectures'] );
       } else {
         if( $item['architectures'][0] != '*' ) {
           $architectures = $item['architectures'][0];
@@ -165,25 +213,26 @@ class MastodonStatus extends MastodonAPI
       'visibility' => 'public', // 'private'; // Public , Unlisted, Private, and Direct (default)
       'language'   => 'en',
     ];
+
     // Publish to fediverse
     $resp = $this->postStatus($status_data);
     // API call failed, something wrong, result should be JSON object or array
     if( !$resp /*|| empty($resp)*/ ) {
-      $this->logger->logf("[ERROR] (bad response) for %s (%s)\n", $item['name'], $item['version'] );
+      $this->logger->logf("[ERROR] (bad response) for %s (%s)".PHP_EOL, $item['name'], $item['version'] );
       return false;
     }
     // got a curl error
     if( isset( $resp['curl_error'] ) ) {
-      $this->logger->logf("[ERROR] (curl error) for %s (%s).\nError code:%s\nError: %s\n", $item['name'], $item['version'], $resp ['curl_error_code'], $resp ['curl_error'] );
+      $this->logger->logf("[ERROR] (curl error) for %s (%s).\nError code:%s\nError: %s".PHP_EOL, $item['name'], $item['version'], $resp ['curl_error_code'], $resp ['curl_error'] );
       return false;
     }
     // got an {"error":"blah"} message in Mastodon's JSON Response
     if( isset( $resp['error'] ) ) {
-      $this->logger->logf("[ERROR] (application error) for %s (%s)\nJSON Error: %s", $item['name'], $item['version'], $resp ['error'] );
+      $this->logger->logf("[ERROR] (application error) for %s (%s)\nJSON Error: %s (%d bytes)", $item['name'], $item['version'], $resp ['error'], strlen($status_data['status']) );
       return false;
     }
     // Success
-    $this->logger->logf("[SUCCESS] Published %s (%s) by %s\n", $item['name'], $item['version'], $item['author'] );
+    $this->logger->logf("[SUCCESS] Published %s (%s) by %s".PHP_EOL, $item['name'], $item['version'], $item['author'] );
     return true;
   }
 
@@ -215,6 +264,7 @@ class MastodonStatus extends MastodonAPI
         if( count($matches)==3 && !empty($matches[0]) && !empty($matches[1]) && !empty($matches[2]) ) {
           $name    = trim($matches[1]);
           $version = trim($matches[2]);
+          // TODO: check if $name has a cooldown
           // check if the library/version from this post is unset or higher version
           if( !isset( $items[$name] ) || \Composer\Semver\Comparator::greaterThan( $version, $items[$name] ) ) {
             $items[$name] = $version; // store in array

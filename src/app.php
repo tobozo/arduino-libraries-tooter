@@ -8,27 +8,32 @@ require_once('config/loader.php');
 require_once('LogManager/FileLogger.php');
 require_once('QueueManager/JSONQueue.php');
 require_once('CacheManager/JSONCache.php');
+require_once('SocialPlatform/Github/github.php');
 require_once('SocialPlatform/Mastodon/MastodonStatus.php');
+require_once('SocialPlatform/BlueSky/bsky.php');
 
 use LogManager\FileLogger;
 use CacheManager\JSONCache;
-use QueueManager\JSONQueue;
+//use QueueManager\JSONQueue;
 use SocialPlatform\MastodonStatus;
+use SocialPlatform\BlueSkyStatus;
+use SocialPlatform\GithubInfoFetcher;
 use Composer\Semver\Comparator;
 
 
 class App
 {
   private JSONCache $cache;
-  private JSONQueue $queue;
+  //private JSONQueue $queue;
   private MastodonStatus $mastodon;
+  private BlueSkyStatus $bluesky;
   private FileLogger $logger;
   private int $max_posts_per_run = 2;
 
   public function __construct()
   {
     $this->logger   = new FileLogger( ENV_DIR );
-    $this->queue    = new JSONQueue( INDEX_CACHE_DIR );
+    //$this->queue    = new JSONQueue( INDEX_CACHE_DIR, "queue.json" );
     $this->mastodon = new MastodonStatus([
       'token'        => MASTODON_API_APP_TOKEN,
       'instance_url' => MASTODON_API_APP_URL,
@@ -39,13 +44,17 @@ class App
       'logger'    => $this->logger
     ]);
     $this->mastodon->logger = $this->logger;
+
+    $this->bluesky = new BlueSkyStatus( $_ENV['BSKY_API_APP_USER'], $_ENV['BSKY_API_APP_TOKEN'] );
+
   }
 
 
   public function run(): void
   {
     // load queued libraries from local file
-    $queuedLibraries = $this->queue->get();
+    // TODO: 24h Cooldown for every $item['name']
+    $queuedLibraries = $this->mastodon->queue->get();
 
     // get mastodon last posted items
     $lastItems = $this->mastodon->getLastItems();
@@ -77,7 +86,7 @@ class App
         foreach( $diff['>'] as $name => $props ) {
           $queuedLibraries[$name] = $props;
         }
-        $this->queue->save( $queuedLibraries );
+        $this->mastodon->queue->save( $queuedLibraries );
       }
     }
 
@@ -103,11 +112,13 @@ class App
       // echo sprintf("[DEBUG][SHOULD NOTIFY] %s => %s\n%s\n", $name, print_r( $item, true ), $this->mastodon->format( $item ) );
       // unset($queuedLibraries[$name]);
       // // save updated queue file
-      // $this->queue->save( $queuedLibraries );
+      // $this->mastodon->queue->save( $queuedLibraries );
       if( $this->mastodon->publish( $item ) ) {
         unset($queuedLibraries[$name]);
         // save updated queue file
-        $this->queue->save( $queuedLibraries );
+        $this->mastodon->queue->save( $queuedLibraries );
+        // now that duplicate post is prevented, cross post to other networks
+        $this->bluesky->publish( $this->mastodon->formatted_item );
       }
       exit; // avoid spam
     }
