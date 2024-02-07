@@ -1,6 +1,8 @@
 ## Arduino Libraries Tooter 📯🐘
 
-This is the source code for the Bot running behind the fediverse account [@arduinoLibraries@botsin.space](https://botsin.space/@arduinoLibraries)
+This is the source code for the Bot running behind the fediverse/bluesky accounts:
+  - 🐘 [@arduinoLibraries@botsin.space](https://botsin.space/@arduinoLibraries)
+  - 🟦 [@arduinolibs.bsky.social](https://bsky.app/profile/arduinolibs.bsky.social)
 
 <img width=250 src=./assets/head.jpg>
 
