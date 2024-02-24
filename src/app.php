@@ -105,7 +105,7 @@ class App
         // duplicate post, skip !
         $this->logger->logf("[WARNING] Duplicate post for %s (%s), skipping", $item['name'], $item['version'] );
         unset($queuedLibraries[$name]);
-        $this->queue->save( $queuedLibraries );
+        $this->mastodon->queue->save( $queuedLibraries );
         continue;
       }
       // $item = $this->mastodon->processItem( $item );

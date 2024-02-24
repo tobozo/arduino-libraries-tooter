@@ -24,7 +24,7 @@ Quick Start:
   - Edit the `.env` file to set `MASTODON_API_KEY` and `MASTODON_API_URL` and `MASTODON_ACCOUNT_ID` values
   - Edit the `.env` file to set `BSKY_API_APP_NAME` and `BSKY_API_APP_USER` and `BSKY_API_APP_TOKEN` values
   - Schedule a run every 10mn by either:
-    - Setting `cron.php` as a crontab `*/10 * * * * cd /home/vRAk/_src/php/arduino-libraries-announcer/ && sh cron.sh >> logfile.txt 2>&1`
+    - Setting `cron.php` as a crontab `*/10 * * * * cd /path/to/arduino-libraries-announcer/ && sh cron.sh >> logfile.txt 2>&1`
     - Or by using a systemd timer (TODO: document this)
 
 Dependencies:
@@ -44,4 +44,5 @@ Inspiration:
 
 Thanks:
   - @tipiak75
+  - @DigitalSOok
 
