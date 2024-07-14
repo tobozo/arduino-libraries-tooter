@@ -19,7 +19,7 @@
         }
     ],
     "require": {
-        "php": ">=8.0",
+        "php": ">=7.0",
         "halaxa/json-machine": "^1.1",
         "vlucas/phpdotenv": "^5.5",
         "composer/semver": "^3.4"

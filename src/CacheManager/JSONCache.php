@@ -202,7 +202,7 @@ class JSONCache
     curl_setopt($ch, CURLOPT_NOBODY, true);
     curl_setopt($ch, CURLOPT_USERAGENT, 'PHP 8/Arduino-Libraries-Announcer 1.0');
     // this function is called by curl for each header received
-    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function(\CurlHandle $ch, string $header) use (&$headers) {
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function($ch, string $header) use (&$headers) {
       $len = strlen($header);
       $header = explode(':', $header, 2);
       if (count($header) < 2) // ignore invalid headers

@@ -58,7 +58,7 @@ class MastodonAPI
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     curl_setopt($ch, CURLOPT_USERAGENT, 'PHP 8/Arduino-Libraries-Announcer 1.0');
-    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function(\CurlHandle $ch, string $header) use (&$response_headers) {
+    curl_setopt($ch, CURLOPT_HEADERFUNCTION, function($ch, string $header) use (&$response_headers) {
       $len = strlen($header);
       $header = explode(':', $header, 2);
       if (count($header) < 2) // ignore invalid headers

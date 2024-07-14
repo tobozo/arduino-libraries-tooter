@@ -108,11 +108,16 @@ class App
         $this->mastodon->queue->save( $queuedLibraries );
         continue;
       }
-      // $item = $this->mastodon->processItem( $item );
-      // echo sprintf("[DEBUG][SHOULD NOTIFY] %s => %s\n%s\n", $name, print_r( $item, true ), $this->mastodon->format( $item ) );
-      // unset($queuedLibraries[$name]);
-      // // save updated queue file
-      // $this->mastodon->queue->save( $queuedLibraries );
+
+      if( isset($_ENV['TEST_MODE']) ) {
+        $item = $this->mastodon->processItem( $item );
+        echo sprintf("[DEBUG][SHOULD NOTIFY] %s => %s\n%s\n", $name, print_r( $item, true ), $this->mastodon->format( $item ) );
+        unset($queuedLibraries[$name]);
+        // save updated queue file
+        $this->mastodon->queue->save( $queuedLibraries );
+        continue;
+      }
+
       if( $this->mastodon->publish( $item ) ) {
         unset($queuedLibraries[$name]);
         // save updated queue file
