@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace SocialPlatform;
 
+require_once("ParseLinkHeader.php");
+
 //use \MastodonAPI;
 use \Composer\Semver\Comparator;
 use \LogManager\FileLogger;
@@ -76,6 +78,73 @@ class MastodonAPI
 
     return json_decode($this->reply, true);
   }
+
+  // look for pagination links in API response HTTP headers,
+  // and return the "next"
+  public function getNextPage()
+  {
+    $headers = $this->response_headers;
+
+    if( empty($headers) )
+      return false;
+
+    if( !isset( $headers['link'] ) )
+    {
+      //echo("No link header to follow for url $next_url, aborting".PHP_EOL.print_r($headers, 1).PHP_EOL );
+      return '';
+    }
+
+    $links = ( new \TiagoHillebrandt\ParseLinkHeader( $headers['link'] ) )->toArray();
+
+    if( !is_array($links) || !isset($links['next'] ) || empty($links['next']) || !isset($links['next']['link']) || empty($links['next']['link']) )
+    {
+      //echo("End of list reached".PHP_EOL);
+      return '';
+    }
+
+    $next_url = $links['next']['link'];
+    $next_url = str_replace($this->instance_url, "", $next_url ); // strip domain from url
+    return $next_url;
+  }
+
+
+
+  // follow link[rel=next] from paginated query, return results
+  public function consumeQuery( $linkRelNext, $what=NULL, $method="GET", $args=[], $sleep=5 ) : array
+  {
+    $ret = [];
+
+    while( $linkRelNext != "" )
+    {
+      $resp = $this->callAPI( $linkRelNext, $method, $args);
+
+      if( isset( $resp['curl_error'] ) || isset( $resp['error'] ) || isset($resp['json_error']) )
+      {
+        print_r($resp);
+        php_die("An API request to $linkRelNext failed after collecting ".count($ret)." record(s)".PHP_EOL);
+      }
+
+      if( empty($resp) )
+        break;
+
+      foreach($resp as $item)
+      {
+        if($what && isset($item[$what]))
+          $ret[] = $item[$what];
+        else
+          $ret[] = $item;
+      }
+
+      $linkRelNext = $this->getNextPage();
+      echo ".";
+      sleep($sleep);
+    }
+
+    return $ret;
+  }
+
+
+
 }
 
 
@@ -90,7 +159,7 @@ class MastodonStatus extends MastodonAPI
   private array $server_config;
 
   private string $default_arch = 'arduino';
-  private array $account;
+  private array $account = [];
 
   public FileLogger $logger;
 
@@ -243,7 +312,7 @@ class MastodonStatus extends MastodonAPI
   public function getLastItems( int $max_count=30 ): array
   {
     $args = [ /*'limit' => $max_count*/ ];
-    $apicall = "/api/v1/accounts/".$this->account['id']."/statuses";
+    $apicall = "/api/v1/accounts/".$this->getAccountId()."/statuses";
     $ret = $this->callAPI( $apicall, 'GET', $args);
 
     if( !$ret || ! is_array($ret ) || empty($ret) ) {
@@ -254,8 +323,11 @@ class MastodonStatus extends MastodonAPI
     $items = [];
 
     foreach( $ret as $post ) {
+      if(isset($post['reblog']) ) {
+        continue;
+      }
       if(!isset($post['content']) || empty($post['content']) ) {
-        print_r($post);exit;
+        //print_r($post);exit;
         $this->logger->logf("[WARNING] Post #%s has no content", $post['id'] );
         continue;
       }
@@ -272,16 +344,23 @@ class MastodonStatus extends MastodonAPI
         }
       }
     }
-
     return $items;
   }
 
 
+  public function getAccountId()
+  {
+    if(!empty($this->account)) return $this->account['id'];
+  }
+
   // retrieve account information (account id, statuses_count, etc)
   // the operation also validates the token
   // return user info
-  private function getAccount(): array
+  public function getAccount(): array
   {
+    if( !empty($this->account) )
+      return $this->account;
+
     $resp = $this->callAPI("/api/v1/accounts/verify_credentials", "GET", []);
     // catch curl error or API error
     if( isset( $resp['curl_error'] ) || isset( $resp['error'] ) ) {

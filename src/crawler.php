@@ -21,7 +21,6 @@ class App
   {
     $this->logger   = new FileLogger( ENV_DIR );
     $this->mastodon = new MastodonAPI( MASTODON_API_CRAWLER_TOKEN, MASTODON_API_CRAWLER_URL );
-    //$this->mastodon->logger = $this->logger;
   }
 
   public function crawl(): void

@@ -8,6 +8,7 @@ require_once('config/loader.php');
 require_once('LogManager/FileLogger.php');
 require_once('QueueManager/JSONQueue.php');
 require_once('CacheManager/JSONCache.php');
+require_once("SocialPlatform/common.php");
 require_once('SocialPlatform/Github/github.php');
 require_once('SocialPlatform/Mastodon/MastodonStatus.php');
 require_once('SocialPlatform/BlueSky/bsky.php');
@@ -45,7 +46,7 @@ class App
     ]);
     $this->mastodon->logger = $this->logger;
 
-    $this->bluesky = new BlueSkyStatus( $_ENV['BSKY_API_APP_USER'], $_ENV['BSKY_API_APP_TOKEN'] );
+    $this->bluesky = new BlueSkyStatus( BSKY_API_APP_USER, BSKY_API_APP_TOKEN );
 
   }
 
@@ -123,7 +124,10 @@ class App
         // save updated queue file
         $this->mastodon->queue->save( $queuedLibraries );
         // now that duplicate post is prevented, cross post to other networks
-        $this->bluesky->publish( $this->mastodon->formatted_item );
+        if( $this->bluesky->hasSession() != null )
+          $this->bluesky->publish( $this->mastodon->formatted_item );
+        else
+          $this->logger->logf("[WARNING] Last bluesky post skipped".PHP_EOL);
       }
       exit; // avoid spam
     }

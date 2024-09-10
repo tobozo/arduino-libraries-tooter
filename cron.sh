@@ -1,3 +1,6 @@
+
+# */10 * * * * /home/tobozo/src/arduino-libraries-tooter/cron.sh > /dev/null 2>&1
+
 PIDFILE=arduino-library-announcer.pid
 
 if [ -f $PIDFILE ]
