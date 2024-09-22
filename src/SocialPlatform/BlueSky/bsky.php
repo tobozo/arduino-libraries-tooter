@@ -555,9 +555,9 @@ class BlueSkyStatus
 
 
 
-  public function getEmbedCard( $url)
+  public function getEmbedCard($url)
   {
-    $info_card = GithubInfoFetcher::getCardInfo( $url );
+    $info_card = GithubInfoFetcher::getCardInfo($url);
 
     $card = [
       'uri'         => $url,
@@ -568,12 +568,12 @@ class BlueSkyStatus
 
     if( $img_url )
     {
-      if(!strstr($img_url, '://') )
+      if( !strstr($img_url, '://') ) // relative image URL?
         $img_url = $url.$img_url;
 
       $img_path = $this->img_cache_dir."/".md5($url).'.image';
 
-      if(! file_exists( $img_path ) )
+      if(! file_exists($img_path) )
       {
         // dirty fix: github gives 429 (toot many requests) if the download is made too early after fetching the og: tags
         $blobImage = file_get_contents_exp_backoff( $img_url ) or php_die("Unable to fetch og:image at url $url".PHP_EOL);

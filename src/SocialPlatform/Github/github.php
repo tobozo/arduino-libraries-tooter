@@ -40,17 +40,17 @@ class GithubInfoFetcher
   public static $cache = [];
 
 
-  public static function getCardInfo( $url)
+  public static function getCardInfo($url)
   {
     if( isset( GithubInfoFetcher::$cache[$url] ) ) {
       return GithubInfoFetcher::$cache[$url];
     }
 
     $card_info = [
-      "og_image" => "",
-      "og_title" => "",
+      "og_image"       => "",
+      "og_title"       => "",
       "og_description" => "",
-      "topics" => []
+      "topics"         => []
     ];
 
     # fetch the HTML
@@ -78,14 +78,14 @@ class GithubInfoFetcher
     foreach($topics_arr as $node) {
       $card['topics'][] = str_replace('topic:', '', $node->getAttribute('data-octo-dimensions') );
     }
-    if( $img_url ) {
+    if( isset($img_url) ) {
       $card_info['og_image'] = $img_url;
     }
     # parse out the "og:title" and "og:description" HTML meta tags
-    if( $title_tag ) {
+    if( isset($title_tag) ) {
       $card_info['og_title'] = $title_tag;
     }
-    if( $description_tag ) {
+    if( isset($description_tag) ) {
       $card_info['og_description'] = $description_tag;
     }
     foreach($topics_arr as $node) {

@@ -296,7 +296,7 @@ class App
         echo sprintf("Agent found %d posts to like out of %d".PHP_EOL, count($posts_to_like), count($posts['posts']) );
 
         // for debug
-        file_put_contents($this->cache_dir.'/like-queue.json', json_encode($posts_to_like, JSON_PRETTY_PRINT) ) or php_die("Unable to save likes queue");
+        file_put_contents($this->cache_dir."/$keyword-like-queue.json", json_encode($posts_to_like, JSON_PRETTY_PRINT) ) or php_die("Unable to save likes queue");
 
         return $posts_to_like;
     }

@@ -218,11 +218,47 @@ class MastodonStatus extends MastodonAPI
       implode(" ", array_unique($item['tags']))
     );
 
+    if( strlen( $this->formatted_item ) > $this->max_characters )
+    {
+      $len_excess   = strlen( $this->formatted_item ) - $this->max_characters;
+      $len_ellipsed = strlen($item['sentence']) - ($len_excess+3);
 
-    // TODO: figure out server max Text character limit
-    // TODO: truncate properly to fit
-    if( strlen( $this->formatted_item ) > $this->max_characters ) {
-      $this->logger->logf("[WARNING] Message length (%d) exceeds server limit (%d)".PHP_EOL, strlen( $this->formatted_item ). $this->max_characters );
+      if($len_ellipsed>0)
+      {
+        $sentence = substr($item['sentence'], 0, $len_ellipsed)."...";
+        // reformat with truncated/ellipsed sentence
+        $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
+          $item['name'],
+          $item['version'],
+          $item['architectures'],
+          $item['author'],
+          $item['repository'],
+          $sentence,
+          implode(" ", array_unique($item['tags']))
+        );
+        $this->logger->logf("[WARNING] Message length exceeds server limit (%d>%d), sentence field has been ellipsed".PHP_EOL, strlen( $this->formatted_item ), $this->max_characters );
+      }
+      else
+      {
+        // reformat without hashtags
+        $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s ",
+          $item['name'],
+          $item['version'],
+          $item['architectures'],
+          $item['author'],
+          $item['repository'],
+          $item['sentence']
+        );
+        $this->logger->logf("[WARNING] Message length exceeds server limit (%d>%d), hashtags have been removed".PHP_EOL, strlen( $this->formatted_item ), $this->max_characters );
+      }
+
+      if( strlen( $this->formatted_item ) > $this->max_characters )
+      {
+        // truncate
+        $this->formatted_item = substr( $this->formatted_item, 0, $this->max_characters );
+        $this->logger->logf("[WARNING] Message length exceeds server limit (%d>%d), message has been truncated".PHP_EOL, strlen( $this->formatted_item ), $this->max_characters );
+      }
+
     }
 
     return $this->formatted_item;
