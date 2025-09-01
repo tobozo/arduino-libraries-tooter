@@ -150,15 +150,70 @@ class MastodonAPI
 
 
 
+class MastodonInstance
+{
+
+  private $cache_dir = 'cache/mastodon'; //
+  private $instances_file;
+  private $token;
+  private $max_age = 86400;
+
+  public function __construct( array $conf )
+  {
+    if( !isset($conf['token']) || empty($conf['token']))
+        php_die("Missing token".PHP_EOL);
+
+    $this->token = $conf['token'];
+
+    if( isset($conf['cache_dir']) )
+        $this->cache_dir = $conf['cache_dir'];
+
+    if( isset($conf['max_age']) )
+        $this->max_age = $conf['max_age'];
+
+    $this->instances_file = $this->cache_dir.'/instances.json';
+
+    if( !is_dir($this->cache_dir) )
+        mkdir($this->cache_dir, 0777, true) or php_die("Unable to create dir ".$this->cache_dir.PHP_EOL);
+  }
+
+  public function getInstances()
+  {
+      if( file_exists($this->instances_file) && filemtime($this->instances_file)+$this->max_age>time() )
+      {
+          $instancesTxt = file_get_contents($this->instances_file) or php_die("Unable to read ".$this->instances_file.PHP_EOL);
+          return json_decode($instancesTxt, true);
+      }
+
+      $options = array('http' => array(
+          'method'  => 'GET',
+          'header' => 'Authorization: Bearer '.$this->token
+      ));
+      $context  = stream_context_create($options);
+      $response = file_get_contents('https://instances.social/api/1.0/instances/list?count=0', false, $context) or php_die("Unable to fetch instance list".PHP_EOL);
+      $instances = json_decode($response, true);
+      if(empty($instances))
+          php_die("Invalid json response: $instances");
+      file_put_contents($this->instances_file, $response);
+      return $instances;
+  }
+}
+
+
+
+
+
+
 class MastodonStatus extends MastodonAPI
 {
 
-  private array $default_tags = ['#Arduino', '#ArduinoLibs'];
+  private array $default_tags = ['#ArduinoLibraries', '#ArduinoLibs'];
   private int $max_tags = 7;
   private int $max_characters = 500;
   private array $server_config;
 
   private string $default_arch = 'arduino';
+  private string $default_lang = 'en';
   private array $account = [];
 
   public FileLogger $logger;
@@ -208,10 +263,10 @@ class MastodonStatus extends MastodonAPI
   public function format( array $item ): string
   {
     // populate message
-    $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
+    $this->formatted_item = sprintf( "%s (%s) %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
       $item['name'],
       $item['version'],
-      $item['architectures'],
+      !empty($item['architectures']) ? 'for '.$item['architectures'] : '',
       $item['author'],
       $item['repository'],
       $item['sentence'],
@@ -227,10 +282,10 @@ class MastodonStatus extends MastodonAPI
       {
         $sentence = substr($item['sentence'], 0, $len_ellipsed)."...";
         // reformat with truncated/ellipsed sentence
-        $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
+        $this->formatted_item = sprintf( "%s (%s) %s by %s\n\n➡️ %s\n\n%s\n\n%s ",
           $item['name'],
           $item['version'],
-          $item['architectures'],
+          !empty($item['architectures']) ? 'for '.$item['architectures'] : '',
           $item['author'],
           $item['repository'],
           $sentence,
@@ -241,10 +296,10 @@ class MastodonStatus extends MastodonAPI
       else
       {
         // reformat without hashtags
-        $this->formatted_item = sprintf( "%s (%s) for %s by %s\n\n➡️ %s\n\n%s ",
+        $this->formatted_item = sprintf( "%s (%s) %s by %s\n\n➡️ %s\n\n%s ",
           $item['name'],
           $item['version'],
-          $item['architectures'],
+          !empty($item['architectures']) ? 'for '.$item['architectures'] : '',
           $item['author'],
           $item['repository'],
           $item['sentence']
@@ -267,8 +322,9 @@ class MastodonStatus extends MastodonAPI
 
 
   // process and post $item to mastodon network
+  // hydrate $item['lang'] with detected language
   // return bool
-  public function publish( array $item ): bool
+  public function publish( array &$item ): bool
   {
     $item = $this->processItem( $item );
     return $this->post( $item );
@@ -283,28 +339,98 @@ class MastodonStatus extends MastodonAPI
     $item['author'] = trim( preg_replace("/<[^>]+>/", "", (string)$item['author'] ) );
     // remove trailing ".git" in repository URL
     $item['repository'] = trim( preg_replace("/\.git$/", "", (string)$item['repository'] ) );
+    // remove tags from sentence/paragraph
+    $item['sentence'] = trim(strip_tags($item['sentence']));
+
     // populate architectures (text and tags)
     $architectures = $this->default_arch; // (default)
-    $item['tags']  = $this->default_tags; // ['#Arduino', '#ArduinoLibs']; // (defaults)
+    $item['tags']  = $this->default_tags; // ['#ArduinoLibraries', '#ArduinoLibs']; // (defaults)
     if( isset($item['architectures']) && !empty($item['architectures']) ) {
-      if( count( $item['architectures'] ) > 1 ) {
-        foreach( $item['architectures'] as $idx => $arch ) {
-          if( $idx <= $this->max_tags ) {
-            $item['tags'][] = '#'.$arch;
-          } else {
-            unset( $item['architectures'][$idx] );
-          }
-        }
-        $architectures = implode("/", $item['architectures'] );
-      } else {
-        if( $item['architectures'][0] != '*' ) {
-          $architectures = $item['architectures'][0];
-          $item['tags'][] = '#'.$item['architectures'][0];
+      foreach( $item['architectures'] as $idx => $arch ) {
+        if( $arch != '*' && $idx <= $this->max_tags ) {
+          $item['tags'][] = '#'.$arch.'Libraries';
+        } else {
+          unset( $item['architectures'][$idx] );
         }
       }
+      $architectures = implode("/", $item['architectures'] );
     }
     $item['architectures'] = $architectures;
+    $item['lang'] = $this->detectLanguage( $item );
+
+    // TODO: detect language from $item['sentence']
+
     return $item;
+  }
+
+
+  private function detectLanguage( array $item ): string
+  {
+    // DISABLED, too few projects are detected to be worth the atrocious cpu consumption of this
+    return $this->default_lang;
+
+
+    if(!defined( 'LINGUA_CLI' ) )
+      return $this->default_lang;
+
+    // exec('which lingua-cli', $out);
+    //
+    // if(empty($out) || empty($out[0]))
+    // {
+    //   echo "lingua-cli is not installed, see https://github.com/pemistahl/lingua-rs + https://github.com/proycon/lingua-cli".PHP_EOL;
+    //   return $this->default_lang;
+    // }
+    // if(!file_exists($out[0]))
+    // {
+    //   echo "lingua-cli not reachable:  ".$out[0].PHP_EOL;
+    //   return $this->default_lang;
+    // }
+    //
+    // $linguacli = $out[0];
+
+    $delimiter = ",";
+
+    // if( isset($item['paragraph']) && strlen($item['paragraph']) > strlen($item['sentence']) )
+    //   $text = $item['paragraph'];
+    // else
+      $text = $item['sentence'];
+
+    // because str_word_count() sucks with non latin alphabets
+    // $words_count = count(preg_split('/\s+/', $text));
+
+    $cmd = sprintf('echo %s | %s --delimiter=%s,', escapeshellarg($text), LINGUA_CLI, $delimiter );
+
+    if( exec($cmd, $out) )
+    {
+      //echo "$cmd =>";
+      //print_r($out);
+      $res = explode($delimiter, $out[0]);
+      if(count($res)<2)
+      {
+        echo "Bad result: $out[0]".PHP_EOL;
+        return $this->default_lang;
+      }
+      $lang = current($res);
+      if( !preg_match('/^[a-z]{2}$/i', $lang) )
+      {
+        echo "Bad lang code: $lang".PHP_EOL;
+        return $this->default_lang;
+      }
+
+      $proba = floatval(end($res));
+      if($proba < 0.9) // not enough confidence to trust lingua-cli
+      {
+        if( $lang != $this->default_lang )
+          echo "Confidence $proba is too low for $lang".PHP_EOL;
+        return $this->default_lang;
+      }
+      if( $lang != $this->default_lang )
+        echo "Detected language: $lang".PHP_EOL;
+
+      return $lang;
+    }
+
+    return $this->default_lang; // default
   }
 
 
@@ -316,7 +442,7 @@ class MastodonStatus extends MastodonAPI
     $status_data = [
       'status'     => $this->format( $item ), // populate message
       'visibility' => 'public', // 'private'; // Public , Unlisted, Private, and Direct (default)
-      'language'   => 'en',
+      'language'   => isset($item['lang']) ? $item['lang'] : 'en',
     ];
 
     // Publish to fediverse

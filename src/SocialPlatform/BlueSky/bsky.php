@@ -12,6 +12,45 @@ use \QueueManager\JSONQueue;
 // - https://james.cridland.net/blog/2023/php-posting-to-bluesky/
 // - https://github.com/friendica/friendica-addons/tree/develop/bluesky
 
+
+class BlueskyUri
+{
+  private array $parts;
+
+  public function __construct( string $uri )
+  {
+    // strip off the protocol
+    $uri = substr($uri, 5);
+    $this->parts = explode('/', $uri);
+  }
+
+  public function getUri(): string
+  {
+    return $this->uri;
+  }
+
+  public function getDID(): string
+  {
+    return $this->parts[0];
+  }
+
+  public function getNSID(): string
+  {
+    return $this->parts[1];
+  }
+
+  public function getRecord(): string
+  {
+    return $this->parts[2];
+  }
+
+  public function __toString(): string
+  {
+    return $this->uri;
+  }
+}
+
+
 /**
 * Class for interacting with the Bluesky API/AT protocol
 * - https://github.com/cjrasmussen/BlueskyApi
@@ -33,14 +72,19 @@ class BlueskyApi
   private $minDelayBetweenQueries = 1; // seconds
 
   private $response_headers = [];
-  private $session_file = INDEX_CACHE_DIR.'/session.json';
-  private $ratelimit_file = INDEX_CACHE_DIR.'/ratelimit.json';
+  private $cache_dir = 'cache/bluesky';
+  private $session_file;// = INDEX_CACHE_DIR.'/session.json';
+  private $ratelimit_file;// = INDEX_CACHE_DIR.'/ratelimit.json';
 
 
-  public function __construct(?string $handle = null, ?string $app_password = null, string $api_uri = 'https://bsky.social/xrpc/')
+  public function __construct(?string $handle = null, ?string $app_password = null, string $cache_dir = 'cache/bluesky', string $api_uri = 'https://bsky.social/xrpc/')
   {
     if( empty($handle) || empty($app_password) || empty($api_uri) )
       php_die("Missing credentials".PHP_EOL);
+
+    $this->cache_dir      = $cache_dir;
+    $this->session_file   = $session_file = $this->cache_dir.'/session.json';
+    $this->ratelimit_file = $ratelimit_file = $this->cache_dir.'/ratelimit.json';
 
     $reset = $this->isRateLimited();
 
@@ -307,6 +351,7 @@ class BlueskyApi
     if( $secondsSinceLastQuery < $this->minDelayBetweenQueries )
     {
       // querying too fast, throttle
+      // echo "Sleeping ".$this->minDelayBetweenQueries." seconds".PHP_EOL;
       sleep( $this->minDelayBetweenQueries );
     }
 
@@ -353,8 +398,9 @@ class BlueskyApi
     if ($body)
       curl_setopt($c, CURLOPT_POSTFIELDS, $body);
     elseif (($type !== 'GET') && (count($args)))
-      curl_setopt($c, CURLOPT_POSTFIELDS, json_encode($args, JSON_THROW_ON_ERROR));
+      curl_setopt($c, CURLOPT_POSTFIELDS, json_encode($args, JSON_PRETTY_PRINT));
 
+    curl_setopt($c, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1); // fallback from http2 to http1 broken in php 8.3.11
     curl_setopt($c, CURLOPT_HEADER, 0);
     curl_setopt($c, CURLOPT_VERBOSE, 0);
     curl_setopt($c, CURLOPT_RETURNTRANSFER, 1);
@@ -385,7 +431,7 @@ class BlueskyApi
       //     "ratelimit-remaining"=>["0"],
       //     "ratelimit-reset"=>["1694912614"],
       //     "ratelimit-policy"=>["30;w=300"],
-      if( array_key_exists('ratelimit-'.$key, $response_headers ) )
+      if( is_array($response_headers) && array_key_exists('ratelimit-'.$key, $response_headers ) )
       {
         $ratelimit['ratelimit-'.$key] = $response_headers['ratelimit-'.$key];
       }
@@ -401,7 +447,7 @@ class BlueskyApi
     if ($http_code != 200)
     {
       $ret = ['ok'=>false, 'curl_error_code' => curl_errno($c), 'curl_error' => curl_error($c), 'response_headers' => $response_headers];
-      if( array_key_exists('ratelimit-reset', $ratelimit ) )
+      if( is_array($response_headers) && array_key_exists('ratelimit-reset', $ratelimit ) )
       {
         $ret['error'] = sprintf("Bluesky rate limit encountered, will reset in %d seconds", intval($response_headers['ratelimit-reset'])-strtotime($response_headers['date']) );
       }
@@ -417,6 +463,75 @@ class BlueskyApi
 
 
 
+
+
+
+class BlueSkyProfile extends BlueskyApi
+{
+  public function __construct(?string $handle = null, ?string $app_password = null, string $cache_dir = 'cache/bluesky', string $api_uri = 'https://bsky.social/xrpc/')
+  {
+      parent::__construct($handle, $app_password, $cache_dir, $api_uri);
+  }
+
+  // get a list of accounts followed by me
+  public function getFollowedByMe()
+  {
+      // app.bsky.graph.getFollows?actor=did%3Aplc%3A3ya6fekbfwfvs6bx4zio5p2k&limit=30
+        $cursor = null;
+        $follows = [];
+
+        for(;;)
+        {
+            $resp = $this->request('GET', 'app.bsky.graph.getFollows', ['actor'=>$this->getAccountDid(), 'limit'=>100, 'cursor' => $cursor ] );
+
+            if( !$resp || isset( $resp['curl_error_code'] ) || !isset($resp['follows']) )
+            {
+                print_r($resp);
+                php_die("... Search failed:".PHP_EOL);
+            }
+
+            if( empty($resp['follows']) )
+            {
+                echo "No more results".PHP_EOL;
+                break;
+            }
+
+            $added = 0;
+
+            foreach( $resp['follows'] as $item )
+            {
+                $follows[] = $item;
+                $added++;
+            }
+
+            echo sprintf("Added %d/%d items, cursor: %s", $added, count($resp['follows']), $cursor?$cursor:'initial').PHP_EOL;
+
+            if(!isset($resp['cursor']) )
+            {
+                echo "No more cursor".PHP_EOL;
+                break;
+            }
+
+            if( $cursor == $resp['cursor'] )
+            {
+                echo "No new cursor".PHP_EOL;
+                break;
+            }
+
+            $cursor = $resp['cursor'];
+
+        }
+
+        return $follows;
+
+
+
+  }
+
+}
+
+
+
 class BlueSkyStatus
 {
 
@@ -424,14 +539,15 @@ class BlueSkyStatus
   public $lang = "en";
   private $session = NULL;
   private $api = NULL;
-  private $img_cache_dir = INDEX_CACHE_DIR.'/img';
+  private $img_cache_dir;// = INDEX_CACHE_DIR.'/img';
 
   public $formatted_item;
   public JSONQueue $queue;
 
 
-  public function __construct($username, $pass)
+  public function __construct($username, $pass, $cache_dir='cache/bluesky')
   {
+    $this->img_cache_dir = $cache_dir.'/img';
     $this->api = new BlueskyApi($username, $pass);
 
     if( ! $this->hasSession() )
@@ -534,6 +650,12 @@ class BlueSkyStatus
 
     $last_10_posts = $this->api->request('GET', 'app.bsky.feed.getTimeline');
 
+    if( !array_key_exists('feed', $last_10_posts ) )
+    {
+      print_r($last_10_posts);
+      php_die("Unable to fetch last 10 posts");
+    }
+
     $deleteCount = 0;
 
     foreach( $last_10_posts['feed'] as $pos => $item )
@@ -564,6 +686,7 @@ class BlueSkyStatus
       'title'       => $info_card['og_title'],
       'description' => $info_card['og_description']
     ];
+
     $img_url = $info_card['og_image'];
 
     if( $img_url )
@@ -598,7 +721,7 @@ class BlueSkyStatus
 
 
 
-  public function publish( $text )
+  public function publish( $text, $lang )
   {
     if(! $this->hasSession() )
       return ['error' => 'no session'];
@@ -610,7 +733,7 @@ class BlueSkyStatus
       'collection' => 'app.bsky.feed.post',
       'record'     => [
         '$type'      => 'app.bsky.feed.post',
-        'langs'      => [$this->lang],
+        'langs'      => [$lang],
         'createdAt'  => date("c"),
         'text'       => $text
       ]

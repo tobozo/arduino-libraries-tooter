@@ -1,36 +1,54 @@
 <?php
 
-die("Deprecated, run mastodoncrawler.php instead".PHP_EOL);
-
-/*
 declare(strict_types=1);
 
 namespace MastodonCrawler;
 
+// Build a list of accounts based on keyword search
 
 require_once('config/loader.php');
 require_once('LogManager/FileLogger.php');
 
+require_once('config/loader.php');
+require_once('LogManager/FileLogger.php');
+require_once('QueueManager/JSONQueue.php');
+require_once('CacheManager/JSONCache.php');
+require_once("SocialPlatform/common.php");
+require_once('SocialPlatform/Github/github.php');
+require_once('SocialPlatform/Mastodon/MastodonStatus.php');
+require_once('SocialPlatform/BlueSky/bsky.php');
+
 use LogManager\FileLogger;
-use \MastodonAPI;
+use CacheManager\JSONCache;
+//use QueueManager\JSONQueue;
+use SocialPlatform\MastodonStatus;
 
 
 class App
 {
-  private MastodonAPI $mastodon;
-  private FileLogger $logger;
+  private $mastodon;
+  private $logger;
 
   public function __construct()
   {
-    $this->logger   = new FileLogger( ENV_DIR );
-    $this->mastodon = new MastodonAPI( MASTODON_API_CRAWLER_TOKEN, MASTODON_API_CRAWLER_URL );
+    // $this->logger   = new FileLogger( ENV_DIR );
+    // $this->mastodon = new \MastodonAPI( MASTODON_API_CRAWLER_TOKEN, MASTODON_API_CRAWLER_URL );
+    //$this->mastodon->logger = $this->logger;
+
+    $this->logger   = new \LogManager\FileLogger( ENV_DIR );
+    $this->mastodon = new MastodonStatus([
+        'token'        => MASTODON_API_APP_TOKEN,
+        'instance_url' => MASTODON_API_APP_URL,
+        'logger'       => $this->logger
+    ]);
+
   }
 
   public function crawl(): void
   {
 
     // 1) load known followers from manually saved csv file
-    $csv_file = 'data/following_accounts.csv';
+    $csv_file = 'cache/mastodon/following_accounts.csv';
     $queries_file = 'cache/queries.json';
 
     $file_to_read = fopen( $csv_file, 'r');
@@ -115,8 +133,8 @@ class App
         //
         $response_headers = $this->mastodon->response_headers;
         if( isset($response_headers['x-ratelimit-remaining'])
-        && isset($response_headers['x-ratelimit-limit'])
-        && isset($response_headers['x-ratelimit-reset']) ) {
+         && isset($response_headers['x-ratelimit-limit'])
+         && isset($response_headers['x-ratelimit-reset']) ) {
           echo sprintf("[<-] X-rate: remain:%s, limit:%s, reset:%s\n",
             $response_headers['x-ratelimit-remaining'][0],
             $response_headers['x-ratelimit-limit'][0],
@@ -153,8 +171,8 @@ class App
                 $acct = $account['acct'].'@'.$mastodon_host;
               }
 
-              if( $account['locked'] == true || $account['locked'] == 'true' ) continue; // don't want to be followed
-              if( $account['discoverable'] == false || $account['locked'] == 'false' ) continue; // don't want to be found
+              if( $account['locked'] == true || $account['locked'] == 'true' ) continue; // doesn't want to be followed
+              if( $account['discoverable'] == false || $account['locked'] == 'false' ) continue; // doesn't want to be found
 
               if( preg_match("/nobot|no bot/", $account['note'] ) ) continue; // doesn't want to be followed by bots, per bio
               //note
@@ -162,6 +180,7 @@ class App
               if( $account['acct'] == 'kescher@catcatnya.com' ) continue; // crybully
 
               if( !in_array( $acct, $accounts ) ) {
+                echo sprintf("Added %s".PHP_EOL, $acct);
                 $accounts[] = $acct;
               }
             }
@@ -183,6 +202,6 @@ class App
 
   }
 
-}*/
+}
 
 

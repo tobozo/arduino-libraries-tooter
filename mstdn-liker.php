@@ -8,7 +8,7 @@ require_once(__DIR__ . '/src/mastodon-keyword-liker.php');
 
 $app = new MastodonKeywordLiker\App;
 
-$keywords = [ 'ArduinoIDE', 'Arduino', 'Arduino Library', 'rp2040', 'stm32', 'esp32 arduino', 'esp8266' ];
+$keywords = [ 'ArduinoIDE', 'Arduino', 'Arduino Library', 'rp2040', 'rp2350', 'stm32', 'esp32 arduino', 'esp8266' ];
 
 $search_results = $app->search([
     'keywords'=> $keywords,

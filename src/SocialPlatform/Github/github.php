@@ -40,7 +40,7 @@ class GithubInfoFetcher
   public static $cache = [];
 
 
-  public static function getCardInfo($url)
+  public static function getCardInfo($url, $die_on_fail=true )
   {
     if( isset( GithubInfoFetcher::$cache[$url] ) ) {
       return GithubInfoFetcher::$cache[$url];
@@ -50,11 +50,17 @@ class GithubInfoFetcher
       "og_image"       => "",
       "og_title"       => "",
       "og_description" => "",
+      "og_me"          => [],
       "topics"         => []
     ];
 
     # fetch the HTML
-    $resp = file_get_contents( $url ) or die("Unable to fetch $url ");
+    $resp = @file_get_contents( $url );
+
+    if(!$resp) {
+      if($die_on_fail) die("Unable to fetch $url ");
+      else return [];
+    }
 
     libxml_use_internal_errors(true); // don't spam the console with XML warnings
     $doc = new \DOMDocument();
@@ -63,6 +69,8 @@ class GithubInfoFetcher
     $title_tags_arr = $selector->query('//meta[@property="og:title"]');
     $desc_tags_arr  = $selector->query('//meta[@property="og:description"]');
     $img_url_arr    = $selector->query('//meta[@property="og:image"]');
+    // <a rel="me nofollow" href="https://mastodon.social/@tobozo">@tobozo@mastodon.social</a>
+    $me_url_arr     = $selector->query('//a[contains(@rel,"me")]');
     $topics_arr     = $selector->query('//a[@data-octo-click="topic_click"]');
 
     // loop through all found items
@@ -72,6 +80,9 @@ class GithubInfoFetcher
     foreach($desc_tags_arr as $node) {
       $description_tag = $node->getAttribute('content');
     }
+    foreach($me_url_arr as $node) {
+      $me_url[] = $node->getAttribute('href');
+    }
     foreach($img_url_arr as $node) {
       $img_url = $node->getAttribute('content');
     }
@@ -80,6 +91,9 @@ class GithubInfoFetcher
     }
     if( isset($img_url) ) {
       $card_info['og_image'] = $img_url;
+    }
+    if( isset( $me_url )) {
+      $card_info['og_me'] = $me_url;
     }
     # parse out the "og:title" and "og:description" HTML meta tags
     if( isset($title_tag) ) {

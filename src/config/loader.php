@@ -4,7 +4,17 @@ define("ENV_DIR", realpath( __DIR__.'/../../' ) );
 
 $dotenv = Dotenv\Dotenv::createImmutable( ENV_DIR );
 $dotenv->load();
-$dotenv->required(['MASTODON_API_APP_TOKEN', 'MASTODON_API_APP_TOKEN', 'WGET_BIN', 'GZIP_BIN']);
+$dotenv->required([
+  'BSKY_API_APP_NAME',
+  'BSKY_API_APP_USER',
+  'BSKY_API_APP_TOKEN',
+  'MASTODON_API_APP_TOKEN',
+  'MASTODON_API_APP_URL',
+  'INSTANCE_SOCIAL_USER',
+  'INSTANCE_SOCIAL_APPNAME',
+  'INSTANCE_SOCIAL_APPID',
+  'INSTANCE_SOCIAL_TOKEN'
+]);
 
 //define("MASTODON_ACCOUNT_ID", $_ENV['MASTODON_ACCOUNT_ID'] );
 define("MASTODON_API_APP_TOKEN", $_ENV['MASTODON_API_APP_TOKEN'] );
@@ -15,6 +25,14 @@ define("MASTODON_API_CRAWLER_TOKEN", $_ENV['MASTODON_API_CRAWLER_TOKEN'] );
 
 define("BSKY_API_APP_USER", $_ENV['BSKY_API_APP_USER']);
 define("BSKY_API_APP_TOKEN", $_ENV['BSKY_API_APP_TOKEN']);
+
+define("INSTANCE_SOCIAL_TOKEN", $_ENV['INSTANCE_SOCIAL_TOKEN']);
+
+if( isset( $_ENV['LINGUA_CLI'] ) )
+  define("LINGUA_CLI", $_ENV['LINGUA_CLI'] );
+
+if( isset( $_ENV['GNUPLOT_CLI'] ) )
+  define("GNUPLOT_CLI", $_ENV['GNUPLOT_CLI'] );
 
 define("INDEX_CACHE_DIR", ENV_DIR."/cache");
 

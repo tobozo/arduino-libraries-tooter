@@ -80,6 +80,9 @@ class App
     // compute diff between current and old indexes
     $pruned = $this->cache->getPrunedIndexes();
 
+    file_put_contents(INDEX_CACHE_DIR."/index.pruned.json", json_encode($pruned, JSON_PRETTY_PRINT));
+
+
     // if $pruned has new stuff, merge it in $queuedLibraries and save queue
     if( count($pruned['current'])>0 && count($pruned['old'])>0 ) {
       $diff = $this->cache->array_diff_by_key($pruned['current'], $pruned['old'], 'version');
@@ -125,7 +128,7 @@ class App
         $this->mastodon->queue->save( $queuedLibraries );
         // now that duplicate post is prevented, cross post to other networks
         if( $this->bluesky->hasSession() != null )
-          $this->bluesky->publish( $this->mastodon->formatted_item );
+          $this->bluesky->publish( $this->mastodon->formatted_item, $item['lang'] );
         else
           $this->logger->logf("[WARNING] Last bluesky post skipped".PHP_EOL);
       }

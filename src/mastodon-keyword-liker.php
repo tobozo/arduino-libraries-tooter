@@ -23,6 +23,8 @@ use Composer\Semver\Comparator;
 use \DateTime;
 
 
+// formerly class MastodonAgent
+
 class App
 {
     private $mastodon;
@@ -37,11 +39,12 @@ class App
     public  $ignoredStatusesCount = 0;
     public  $ignoredSelfCount     = 0;
 
-    private $ignoredStatusesFile = 'cache/ignoredStatuses.json';
-    private $ignoredAccountsFile = 'cache/ignoredAccounts.json';
-    private $favouritesFile      = 'cache/favourites.json';
-    private $followersFile       = 'cache/followers.json';
-    private $mentionsFile        = 'cache/mentions.json';
+    private $cache_dir = 'cache/mastodon';
+    private $ignoredStatusesFile;
+    private $ignoredAccountsFile;
+    private $favouritesFile;
+    private $followersFile;
+    private $mentionsFile;
 
     public function __construct()
     {
@@ -51,6 +54,14 @@ class App
             'instance_url' => MASTODON_API_APP_URL,
             'logger'       => $this->logger
         ]);
+
+        if( ! is_dir($this->cache_dir)) mkdir($this->cache_dir, 0777, true) or php_die('Unable to create cache dir'.PHP_EOL);
+
+        $this->ignoredStatusesFile = $this->cache_dir.'/ignoredStatuses.json';
+        $this->ignoredAccountsFile = $this->cache_dir.'/ignoredAccounts.json';
+        $this->favouritesFile      = $this->cache_dir.'/favourites.json';
+        $this->followersFile       = $this->cache_dir.'/followers.json';
+        $this->mentionsFile        = $this->cache_dir.'/mentions.json';
 
     }
 
@@ -84,7 +95,7 @@ class App
 
         echo PHP_EOL;
 
-        file_put_contents($cache_file, json_encode($ret, JSON_PRETTY_PRINT));
+        file_put_contents($cache_file, json_encode($ret/*, JSON_PRETTY_PRINT*/));
 
         return $ret;
     }
@@ -305,7 +316,9 @@ class App
 
             if( isset( $toots['curl_error'] ) || isset( $toots['error'] ) || isset($toots['json_error']) )
             {
-                php_die("An API request to $linkRelNext failed after collecting ".count($this->toots)." record(s)".PHP_EOL);
+                echo "!".PHP_EOL;
+                print("An API request to $linkRelNext failed after collecting ".count($statuses)." record(s) : $toots[error]".PHP_EOL);
+                return [ 'statuses' => $statuses, 'search_args' => $args ];;
             }
 
             if( empty($toots) || !isset($toots['statuses']) || count($toots['statuses'])==0 )

@@ -18,7 +18,7 @@ class JSONCache
   private const index_base_url   = "https://downloads.arduino.cc/libraries"; // no trailing slash
   private const index_file_name  = "library_index.json"; // json document name, no gz extension
 
-  private string $cache_file;     // latest version
+  public string $cache_file;     // latest version
   private string $cache_file_old; // backup version
   private string $cache_file_tmp; // temp version
   private string $gz_url;
@@ -252,18 +252,24 @@ class JSONCache
     $name = $lib_obj['name'];
     $item = &$storage[$name];
 
-    if( isset( $item ) ) {
+    if( isset( $item['version'] ) ) {
       if( $comparator($lib_obj['version'], $item['version'] ) ) {
-        return; // don't update storage
+        // return; // don't update 'version' key in storage
+      } else {
+        $item['version']       = $lib_obj['version'];
       }
+    } else {
+      $item['version']       = $lib_obj['version'];
     }
 
     $item['name']          = $name;
-    $item['version']       = $lib_obj['version'];
+    // $item['version']       = $lib_obj['version'];
     $item['author']        = $lib_obj['author'];
     $item['repository']    = $lib_obj['repository'];
     $item['sentence']      = $lib_obj['sentence'];
     $item['architectures'] = $lib_obj['architectures'];
+    if( isset( $lib_obj['paragraph'] ) )
+      $item['paragraph']     = $lib_obj['paragraph'];
 
     if( preg_match("#^(https|git)(:\/\/|@)([^\/:]+)[\/:]([^\/:]+)\/(.+).git$#", $lib_obj["repository"], $match ) ) {
       $item[$match[3]] = [
@@ -276,7 +282,7 @@ class JSONCache
 
   // store libraries by names, keep highest version
   // return populated array
-  private function getPrunedIndex( string $index_file_path, array $items=[] ): array
+  public function getPrunedIndex( string $index_file_path, array $items=[] ): array
   {
     try {
       $jsonIndex = Items::fromFile( $index_file_path, ['decoder' => new ExtJsonDecoder(true)] );

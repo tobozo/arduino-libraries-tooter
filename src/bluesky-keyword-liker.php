@@ -25,7 +25,7 @@ use \DateTime;
 
 class App
 {
-    private $cache_dir = 'cache/search';
+    private $cache_dir = 'cache/bluesky/search';
     private $api = NULL;
     private $keyword = NULL;
 
@@ -36,16 +36,30 @@ class App
     {
         $this->api = new \SocialPlatform\BlueskyApi(BSKY_API_APP_USER, BSKY_API_APP_TOKEN);
         if( ! $this->api->getAccountDid() ) php_die('Unable to get account id'.PHP_EOL);
-        if( ! is_dir($this->cache_dir)) mkdir($this->cache_dir) or php_die('Unable to create cache dir'.PHP_EOL);
+        if( ! is_dir($this->cache_dir)) mkdir($this->cache_dir, 0777, true) or php_die('Unable to create cache dir'.PHP_EOL);
         $this->followers_file = $this->cache_dir.'/bluesky.followers.json';
     }
 
 
+    public function favourite( $search_results )
+    {
+        foreach( $search_results as $keyword => $posts_to_like )
+        {
+            echo sprintf("Keyword %s has %d likes to perform".PHP_EOL, $keyword, count($posts_to_like));
+            foreach($posts_to_like as $post)
+            {
+                $uriParts = explode('/', $post['uri']);
+                $url = sprintf("https://bsky.app/profile/%s/post/%s", $post['author']['handle'], end($uriParts) );
+                echo "Liking url ... $url".PHP_EOL;
+                $res = $this->likePost( $post );
+            }
+        }
+    }
+
+
+
     public function likePost( $post )
     {
-        if( $this->keyword == NULL )
-            php_die("Cache needs a keyword, search first!".PHP_EOL);
-
         $liked_by_me_filename = $this->cache_dir.'/'.$post['cid'].'.json';
         $needs_like_filename  = $this->cache_dir.'/needs-like-'.$post['cid'].'.json';
 
@@ -190,14 +204,28 @@ class App
     }
 
 
-    public function search( $keywords )
+    public function search( $arr )
     {
-        if( empty( $keywords ) )
-            php_die("Nothing to do".PHP_EOL);
+        if(!isset($arr['keywords']) || empty($arr['keywords']) || !is_array($arr['keywords']) )
+            php_die("No keywords :(".PHP_EOL);
+
+        foreach($arr['keywords'] as $keyword)
+            if( ! preg_match('/^(?=.{2,140}$)([0-9_\p{L}]*[_ \p{L}][0-9_\p{L}]*)$/u', $keyword) )
+                php_die("Invalid keyword: '$keyword'".PHP_EOL);
+
+        // if(!isset($arr['maxCount']))
+        //     $arr['maxCount'] = 100;
+        // else
+        //     $arr['maxCount'] = abs(filter_var($arr['maxCount'], FILTER_SANITIZE_NUMBER_INT));
+        //
+        // if(!isset($arr['maxAge']))
+        //     $arr['maxAge'] = 86400*30*12*5; // a bit less than 5 years
+        // else
+        //     $arr['maxAge'] = abs(filter_var($arr['maxAge'], FILTER_SANITIZE_NUMBER_INT));
 
         $res = [];
 
-        foreach($keywords as $keyword)
+        foreach($arr['keywords'] as $keyword)
         {
             $res[$keyword] = $this->searchKeyword($keyword);
         }
