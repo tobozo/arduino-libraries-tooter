@@ -38,6 +38,7 @@ class App
     $this->mastodon = new MastodonStatus([
       'token'        => MASTODON_API_APP_TOKEN,
       'instance_url' => MASTODON_API_APP_URL,
+      'cache_dir'    => 'cache/mastodon',
       'logger'       => $this->logger
     ]);
     $this->cache    = new JSONCache([
@@ -46,7 +47,14 @@ class App
     ]);
     $this->mastodon->logger = $this->logger;
 
-    $this->bluesky = new BlueSkyStatus( BSKY_API_APP_USER, BSKY_API_APP_TOKEN );
+    $this->bluesky = new BlueSkyStatus([
+      'user'      => BSKY_API_APP_USER,
+      'token'     => BSKY_API_APP_TOKEN,
+      'cache_dir' => 'cache/bluesky',
+      'logger'    => $this->logger
+    ]);
+
+    GithubInfoFetcher::$cache_dir = ENV_DIR.'/cache/github';
 
   }
 
@@ -128,7 +136,10 @@ class App
         $this->mastodon->queue->save( $queuedLibraries );
         // now that duplicate post is prevented, cross post to other networks
         if( $this->bluesky->hasSession() != null )
-          $this->bluesky->publish( $this->mastodon->formatted_item, $item['lang'] );
+        {
+          $bsky_ret = $this->bluesky->publish( $this->mastodon->formatted_item, $item['lang'] );
+          //$this->logger->logf("[bsky] publish result: %s".PHP_EOL, print_r($bsky_ret, true));
+        }
         else
           $this->logger->logf("[WARNING] Last bluesky post skipped".PHP_EOL);
       }

@@ -4,6 +4,7 @@ namespace SocialPlatform;
 
 use \SocialPlatform\GithubInfoFetcher;
 use \QueueManager\JSONQueue;
+use \LogManager\FileLogger;
 
 // Source/inspiration
 // - https://atproto.com/blog/create-post
@@ -76,8 +77,10 @@ class BlueskyApi
   private $session_file;// = INDEX_CACHE_DIR.'/session.json';
   private $ratelimit_file;// = INDEX_CACHE_DIR.'/ratelimit.json';
 
+  public FileLogger $logger;
 
-  public function __construct(?string $handle = null, ?string $app_password = null, string $cache_dir = 'cache/bluesky', string $api_uri = 'https://bsky.social/xrpc/')
+
+  public function __construct(?string $handle = null, ?string $app_password = null, string $cache_dir = 'cache/bluesky', FileLogger $logger = null, string $api_uri = 'https://bsky.social/xrpc/')
   {
     if( empty($handle) || empty($app_password) || empty($api_uri) )
       php_die("Missing credentials".PHP_EOL);
@@ -85,12 +88,14 @@ class BlueskyApi
     $this->cache_dir      = $cache_dir;
     $this->session_file   = $session_file = $this->cache_dir.'/session.json';
     $this->ratelimit_file = $ratelimit_file = $this->cache_dir.'/ratelimit.json';
+    if( $logger !== null )
+      $this->logger = new FileLogger(realpath( __DIR__.'/../../../' ));
 
     $reset = $this->isRateLimited();
 
     if( $reset>0 )
     {
-      echo("[WARNING] Bluesky rate limit in effect, will reset in $reset seconds".PHP_EOL);
+      $this->logger->logf("[bsky][ERROR] rate limit in effect, will reset in $reset seconds".PHP_EOL);
       return;
     }
 
@@ -157,7 +162,7 @@ class BlueskyApi
       if(!array_key_exists($key, $session))
       {
         print_r($session);
-        echo("Invalid bluesky session data (missing key '$key')".PHP_EOL);
+        $this->logger->logf("[bsky] Invalid session data (missing key '$key')".PHP_EOL);
         return false;
       }
     }
@@ -177,7 +182,7 @@ class BlueskyApi
     {
       if(array_key_exists($key, $curl_response))
       {
-        echo("[$key] $curl_response[$key]".PHP_EOL);
+        $this->logger->logf("[bsky][$key] $curl_response[$key]".PHP_EOL);
         return false;
       }
     }
@@ -226,7 +231,7 @@ class BlueskyApi
 
     if(!is_array($session))
     {
-      echo("Unable to read session file".PHP_EOL);
+      $this->logger->logf("[bsky] Unable to read session file".PHP_EOL);
       return false;
     }
 
@@ -259,7 +264,7 @@ class BlueskyApi
   {
     if( file_exists($this->session_file))
     {
-      echo "Revoked access".PHP_EOL;
+      $this->logger->logf("[bsky] Revoked access".PHP_EOL);
       unlink($this->session_file);
     }
     $this->session = null;
@@ -544,19 +549,29 @@ class BlueSkyStatus
   public $formatted_item;
   public JSONQueue $queue;
 
+  public FileLogger $logger;
 
-  public function __construct($username, $pass, $cache_dir='cache/bluesky')
+
+  public function __construct( array $conf )
   {
-    $this->img_cache_dir = $cache_dir.'/img';
-    $this->api = new BlueskyApi($username, $pass);
+    foreach( ['user', 'token', 'logger', 'cache_dir'] as $name ) {
+      if( !isset( $conf[$name] ) )
+      throw new \Exception("Missing conf[$name]");
+    }
+    // $username, $pass, $cache_dir='cache/bluesky'
+    $this->logger  = $conf['logger'];
+    $this->img_cache_dir = isset($conf['cache_dir']) ? $conf['cache_dir'].'/img' : 'cache/bluesky/img';
+    $this->api = new BlueskyApi($conf['user'], $conf['token'], $conf['cache_dir']);
+    $this->api->logger = $conf['logger'];
 
     if( ! $this->hasSession() )
     {
-      // echo("No Bluesky session".PHP_EOL);
+      $this->logger->logf("[bsky] No Bluesky session, aborting".PHP_EOL);
       return;
     }
     if(! is_dir( $this->img_cache_dir ) ) mkdir( $this->img_cache_dir ) or php_die("Please create directory ".$this->img_cache_dir." manually".PHP_EOL);
     $this->queue = new JSONQueue( INDEX_CACHE_DIR, "queue.bluesky.json" );
+    //$this->logger->log("bsky instance created".PHP_EOL);
   }
 
 
@@ -635,7 +650,7 @@ class BlueSkyStatus
     $parts = $this->get_uri_parts($uri);
     if (empty($parts))
     {
-      Logger::debug('No uri delected', ['uri' => $uri]);
+      $this->logger->logf("[bsky] Error deleting post, no uri detected in $uri".PHP_EOL);
       return;
     }
     $this->api->request('POST', 'com.atproto.repo.deleteRecord', $parts);
@@ -645,33 +660,41 @@ class BlueSkyStatus
 
   public function checkDupe( $text )
   {
-    if(! $this->hasSession() )
+    if(! $this->hasSession() ) {
+      $this->logger->logf("[bsky] Unable to get session when checking for duplicates".PHP_EOL);
       return;
+    }
 
     $last_10_posts = $this->api->request('GET', 'app.bsky.feed.getTimeline');
 
     if( !array_key_exists('feed', $last_10_posts ) )
     {
       print_r($last_10_posts);
-      php_die("Unable to fetch last 10 posts");
+      $this->logger->logf("[bsky] Unable to fetch last 10 posts when checking for duplicates".PHP_EOL);
+      return false;
     }
 
-    $deleteCount = 0;
+    $dupeCount = 0;
 
     foreach( $last_10_posts['feed'] as $pos => $item )
     {
       if( $text == $item['post']['record']['text'] )
       { // uh-oh, post already there
-        if( $deleteCount > 0 )
+        if( $dupeCount > 0 )
         {
-          echo sprintf("Entry %d/%s is duplicate, deleting...\n", $pos, $item['post']['uri']);
+          $this->logger->logf("[bsky] Duplicate Entry %d/%s, deleting...\n", $pos, $item['post']['uri']);
           $this->delete_post( $item['post']['uri'] );
         }
-        $deleteCount++;
+        $dupeCount++;
       }
     }
-    if( $deleteCount > 0 )
-      php_die("QOTD already posted, aborting".PHP_EOL );
+    if( $dupeCount > 0 ) {
+      //php_die("Item already posted, aborting".PHP_EOL );
+      $this->logger->logf("[bsky] Item already posted, skipping".PHP_EOL);
+      return false;
+    }
+
+    return true;
   }
 
 
@@ -679,9 +702,15 @@ class BlueSkyStatus
 
   public function getEmbedCard($url)
   {
-    $info_card = GithubInfoFetcher::getCardInfo($url);
+    $info_card = GithubInfoFetcher::getCardInfo($url, false);
 
-    $card = [
+    if( empty($info_card) )
+    {
+      $this->logger->logf("[bsky][WARNING] Unable to fetch github embed card for $url".PHP_EOL);
+      return false;
+    }
+
+    $card = [ // required fields
       'uri'         => $url,
       'title'       => $info_card['og_title'],
       'description' => $info_card['og_description']
@@ -711,6 +740,11 @@ class BlueSkyStatus
       if( !array_key_exists('blob', $response) ) php_die("No blob in response".PHP_EOL);
       // echo "uploadBlob response for $img_mime_type: ".print_r($response, true)."\n";
       $card['thumb'] = $response['blob'];
+
+    }
+    else
+    {
+      $this->logger->logf("[bsky][WARNING] $url has no og:image".PHP_EOL);
     }
 
     return [
@@ -726,7 +760,8 @@ class BlueSkyStatus
     if(! $this->hasSession() )
       return ['error' => 'no session'];
 
-    $this->checkDupe( $text );
+    if(!$this->checkDupe( $text ))
+      return null;
 
     $args = [
       'repo'       => $this->api->getAccountDid(),

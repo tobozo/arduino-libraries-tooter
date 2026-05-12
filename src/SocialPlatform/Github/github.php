@@ -2,12 +2,11 @@
 
 namespace SocialPlatform;
 
-
+// stubborn file_get_contents(), because on average 1/5th queries to github will fail
 function file_get_contents_exp_backoff($url, $maxRetries = 5, $initialWait = 1.0)
 {
-
   global $http_response_header;
-  $result      = false;
+  $result = false;
 
   try {
     $retry   = false;
@@ -37,14 +36,71 @@ function file_get_contents_exp_backoff($url, $maxRetries = 5, $initialWait = 1.0
 class GithubInfoFetcher
 {
 
-  public static $cache = [];
+  public static $cache = []; // memory cache
+  public static $cache_dir = "cache/github"; // filesystem cache
 
 
+  // Translate URL to local file path for cache persistence
+  // $url   -> http://blah.com/user/project
+  // return -> blah.com/user/project.json or (bool)false
+  public static function urlToPath($url)
+  {
+    $urlParts = parse_url($url);
+
+    if(empty($urlParts) || empty($urlParts['host'])) // malformed url
+    {
+      echo sprintf("[github][WARNING] Malformed URL: $url".PHP_EOL);
+      return false;
+    }
+
+    $pathParts = explode('/', $urlParts);
+
+    if(empty($pathParts) || count($pathParts)!=2) // not a github repo url
+    {
+      echo sprintf("[github][WARNING] Malformed path in URL: $url".PHP_EOL);
+      return false;
+    }
+
+    return sprintf('%s/%s/%s/%s', GithubInfoFetcher::$cache_dir, $urlParts['host'], $pathParts[0], $pathParts[1]);
+  }
+
+
+  public static function saveCardInfo($url, $card_info)
+  {
+    // save to ram
+    GithubInfoFetcher::$cache[$url] = $card_info;
+    // save to filesystem
+    $fileName = GithubInfoFetcher::urlToPath($url);
+    if($fileName===false)
+      return false;
+    $dirName = dirname($fileName);
+    if(!is_dir($dirName))
+      if(!mkdir($dirName, 0777, true)) return false;
+    if(!file_put_contents( $fileName, json_encode($card_info) )) return false;
+
+    return true;
+  }
+
+
+  public static function loadCachedCardInfo($url)
+  {
+    $fileName = GithubInfoFetcher::urlToPath($url);
+    if( !file_exists($fileName) ) return [];
+    $txt = @file_get_contents($fileName);
+    if( empty($txt) ) return [];
+    $json = @json_decode($txt, true);
+    if( empty($json ) ) return [];
+    GithubInfoFetcher::$cache[$url] = $json; // store in ram
+    return $json;
+  }
+
+
+
+  // collect opengraph data from a github/gitlab/codeberg project page
   public static function getCardInfo($url, $die_on_fail=true )
   {
-    if( isset( GithubInfoFetcher::$cache[$url] ) ) {
+    if( isset( GithubInfoFetcher::$cache[$url] ) )
       return GithubInfoFetcher::$cache[$url];
-    }
 
     $card_info = [
       "og_image"       => "",
@@ -54,12 +110,14 @@ class GithubInfoFetcher
       "topics"         => []
     ];
 
-    # fetch the HTML
-    $resp = @file_get_contents( $url );
+    // try to fetch the freshest HTML first, be stubborn
+    $resp = @file_get_contents_exp_backoff( $url );
 
-    if(!$resp) {
-      if($die_on_fail) die("Unable to fetch $url ");
-      else return [];
+    if(!$resp) { // network fetching failed, try filesystem cache
+      $cached = GithubInfoFetcher::loadCachedCardInfo($url);
+      if(empty($cached) && $die_on_fail)
+        die("[github][ERROR] Unable to fetch $url ".PHP_EOL);
+      return $cached; // NOTE: can be empty
     }
 
     libxml_use_internal_errors(true); // don't spam the console with XML warnings
@@ -106,7 +164,8 @@ class GithubInfoFetcher
       $card_info['topics'][] = str_replace('topic:', '', $node->getAttribute('data-octo-dimensions') );
     }
 
-    GithubInfoFetcher::$cache[$url] = $card_info;
+    if(! GithubInfoFetcher::saveCardInfo($url, $card_info) )
+      echo sprintf("[github][WARNING] Unable to save card info for $url".PHP_EOL);
 
     return $card_info;
 

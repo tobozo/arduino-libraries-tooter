@@ -9,6 +9,7 @@ class JSONQueue
 {
 
   private string $queue_file;
+  private string $queue_old_file;
 
   public function __construct( string $queue_dir, string $queue_file_name="queue.json")
   {
@@ -19,6 +20,7 @@ class JSONQueue
       throw new \Exception("Queue dir not created: $queue_dir");
     }
     $this->queue_file = $queue_dir.'/'.$queue_file_name;
+    $this->queue_old_file = $queue_dir.'/old_'.$queue_file_name;
   }
 
 
@@ -33,11 +35,13 @@ class JSONQueue
   }
 
 
-  // delete queue file
+  // backup then delete queue file
   public function gc(): void
   {
-    if( file_exists($this->queue_file) )
+    if( file_exists($this->queue_file) ) {
+      file_put_contents( $this->queue_old_file, file_get_contents($this->queue_file) );
       unlink($this->queue_file);
+    }
   }
 
 
