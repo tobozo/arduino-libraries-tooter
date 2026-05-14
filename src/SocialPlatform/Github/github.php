@@ -47,21 +47,21 @@ class GithubInfoFetcher
   {
     $urlParts = parse_url($url);
 
-    if(empty($urlParts) || empty($urlParts['host'])) // malformed url
+    if(empty($urlParts) || empty($urlParts['host']) || empty($urlParts['path'])) // malformed url
     {
       echo sprintf("[github][WARNING] Malformed URL: $url".PHP_EOL);
       return false;
     }
 
-    $pathParts = explode('/', $urlParts);
+    $pathParts = explode('/', $urlParts['path']);
 
-    if(empty($pathParts) || count($pathParts)!=2) // not a github repo url
+    if(empty($pathParts) || count($pathParts)!=3) // not a github repo url
     {
       echo sprintf("[github][WARNING] Malformed path in URL: $url".PHP_EOL);
       return false;
     }
 
-    return sprintf('%s/%s/%s/%s', GithubInfoFetcher::$cache_dir, $urlParts['host'], $pathParts[0], $pathParts[1]);
+    return sprintf('%s/%s/%s/%s', GithubInfoFetcher::$cache_dir, $urlParts['host'], $pathParts[1], $pathParts[2]);
   }
 
 
